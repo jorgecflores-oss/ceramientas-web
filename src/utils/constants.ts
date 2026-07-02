@@ -1,0 +1,13 @@
+export const MQTT_BROKER = 'wss://e4aa6c1aae5f48b0a09026ebdcde979c.s1.eu.hivemq.cloud:8884/mqtt'
+export const MQTT_USER = 'ceramientas'
+export const MQTT_PASS = '8264Tomy'
+
+export const HTTP_TIMEOUT = 5000
+export const AP_IP = '192.168.4.1'
+
+export const STORAGE_KEYS = {
+  HORNO_ID: '@ceramientas_horno_id',
+  PASS: (id: string) => `@ceramientas_pass_${id}`,
+  IP_CACHE: (id: string) => `@ceramientas_ip_${id}`,
+  PROGRAMAS: (id: string) => `@ceramientas_programas_${id}`,
+} as const
