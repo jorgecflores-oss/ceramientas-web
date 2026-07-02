@@ -90,3 +90,22 @@ export function cacheIP(hornoId: string, ip: string) {
 export function getCachedIP(hornoId: string): string | null {
   return localStorage.getItem(STORAGE_KEYS.IP_CACHE(hornoId))
 }
+
+export async function fetchProgramasOnce(
+  ip: string,
+  pass: string,
+  hornoId: string
+): Promise<Programa[]> {
+  try {
+    const programas = await getProgramas(ip, pass)
+    localStorage.setItem(
+      STORAGE_KEYS.PROGRAMAS_CACHE(hornoId),
+      JSON.stringify(programas)
+    )
+    return programas
+  } catch (e) {
+    const cached = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId))
+    if (cached) return JSON.parse(cached) as Programa[]
+    throw e
+  }
+}

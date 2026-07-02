@@ -10,4 +10,6 @@ export const STORAGE_KEYS = {
   PASS: (id: string) => `@ceramientas_pass_${id}`,
   IP_CACHE: (id: string) => `@ceramientas_ip_${id}`,
   PROGRAMAS: (id: string) => `@ceramientas_programas_${id}`,
+  INICIO: (id: string) => `@ceramientas_inicio_${id}`,
+  PROGRAMAS_CACHE: (id: string) => `@ceramientas_programas_${id}`,
 } as const

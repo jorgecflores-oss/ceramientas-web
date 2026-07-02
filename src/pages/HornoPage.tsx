@@ -1,7 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useHornoStore } from '../store/hornoStore'
-import { suscribirEstado, publicarComando, estaConectado } from '../services/mqttService'
-import { postComando } from '../services/hornoService'
+import { suscribirEstado, publicarComando } from '../services/mqttService'
+import { postComando, fetchProgramasOnce } from '../services/hornoService'
+import { CurvaGrafico } from '../components/CurvaGrafico'
+import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
+import { matchPrograma } from '../utils/matchPrograma'
 
 export function HornoPage() {
   const horno = useHornoStore((s) => s.hornoActivo)
@@ -11,6 +14,14 @@ export function HornoPage() {
   const setEstado = useHornoStore((s) => s.setEstado)
   const pushTemp = useHornoStore((s) => s.pushTemp)
   const clearHorno = useHornoStore((s) => s.clearHorno)
+  const historialTemp = useHornoStore((s) => s.historialTemp)
+  const puntosTeoricos = useHornoStore((s) => s.puntosTeoricos)
+  const setProgramas = useHornoStore((s) => s.setProgramas)
+  const setCurvaTeorica = useHornoStore((s) => s.setCurvaTeorica)
+  const clearCurvaTeorica = useHornoStore((s) => s.clearCurvaTeorica)
+  const loadCurvaFromStorage = useHornoStore((s) => s.loadCurvaFromStorage)
+
+  const estadoPrevioRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!horno) return
@@ -20,6 +31,10 @@ export function HornoPage() {
     })
     return unsub
   }, [horno, setEstado, pushTemp])
+
+  useEffect(() => {
+    loadCurvaFromStorage()
+  }, [loadCurvaFromStorage])
 
   async function parar() {
     if (!horno || !pass) return
@@ -33,6 +48,56 @@ export function HornoPage() {
       }
     }
   }
+
+  async function calcularYGuardarCurva() {
+    if (!horno?.ip || !pass || !estado) return
+    try {
+      const progs = await fetchProgramasOnce(horno.ip, pass, horno.hornoId)
+      setProgramas(progs)
+      const match = matchPrograma(
+        progs,
+        estado.etapaTotal,
+        estado.etapa,
+        estado.tempObj
+      )
+      if (!match) return
+      const tInicioReal = Date.now()
+      const t0Virtual = calcularT0Virtual(
+        match.pasos,
+        estado.temperatura,
+        tInicioReal
+      )
+      const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
+      setCurvaTeorica(match, puntos, t0Virtual, 20)
+    } catch (e) {
+      console.error('[CURVA_TEORICA] error', e)
+    }
+  }
+
+  useEffect(() => {
+    const estadoActual = estado?.estado ?? null
+    const prev = estadoPrevioRef.current
+
+    const prevEraInactivo = prev === null || prev === 'idle' || prev === 'finalizado'
+    const actualActivo = estadoActual === 'ejecutando' ||
+                         estadoActual === 'rampa' ||
+                         estadoActual === 'meseta'
+    const prevEraActivo = prev === 'ejecutando' || prev === 'rampa' || prev === 'meseta'
+    const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado'
+
+    if (prevEraInactivo && actualActivo) {
+      if (puntosTeoricos.length > 0) {
+        estadoPrevioRef.current = estadoActual
+        return
+      }
+      calcularYGuardarCurva()
+    } else if (prevEraActivo && actualInactivo) {
+      clearCurvaTeorica()
+    }
+
+    estadoPrevioRef.current = estadoActual
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado?.estado])
 
   if (!horno) return null
 
@@ -87,6 +152,15 @@ export function HornoPage() {
             {estado?.rele ? 'ON' : 'OFF'}
           </p>
         </div>
+      </div>
+
+      <div className="bg-neutral-900 rounded-2xl p-4 border border-neutral-800 mb-6">
+        <p className="text-xs text-neutral-400 uppercase tracking-wider mb-3">Curva</p>
+        <CurvaGrafico
+          puntos={historialTemp}
+          tempObj={estado?.tempObj}
+          puntosTeoricos={puntosTeoricos}
+        />
       </div>
 
       {estado?.corteLuz && (

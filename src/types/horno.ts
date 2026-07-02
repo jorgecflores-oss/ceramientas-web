@@ -27,9 +27,15 @@ export interface Paso {
   tiempo: number
 }
 
+export interface PuntoCurva {
+  t: number
+  temp: number
+}
+
 export interface Programa {
   nombre: string
   tipo: number
+  tempFinal?: number
   pasos: Paso[]
 }
 

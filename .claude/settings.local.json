@@ -3,7 +3,8 @@
     "allow": [
       "Skill(update-config)",
       "Bash(Remove-Item *)",
-      "PowerShell(Remove-Item *)"
+      "PowerShell(Remove-Item *)",
+      "PowerShell(New-Item *)"
     ]
   }
 }
