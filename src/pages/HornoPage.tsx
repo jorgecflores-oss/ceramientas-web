@@ -1,10 +1,21 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, publicarComando } from '../services/mqttService'
 import { postComando, fetchProgramasOnce } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
+
+function LedEstado({ activo, label, color }: { activo: boolean; label: string; color: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className={`w-3 h-3 rounded-full ${color}`} />
+      <span className={`text-xs ${activo ? 'text-white' : 'text-neutral-500'}`}>
+        {label}
+      </span>
+    </div>
+  )
+}
 
 export function HornoPage() {
   const horno = useHornoStore((s) => s.hornoActivo)
@@ -19,9 +30,12 @@ export function HornoPage() {
   const setProgramas = useHornoStore((s) => s.setProgramas)
   const setCurvaTeorica = useHornoStore((s) => s.setCurvaTeorica)
   const clearCurvaTeorica = useHornoStore((s) => s.clearCurvaTeorica)
+  const resetHistorial = useHornoStore((s) => s.resetHistorial)
   const loadCurvaFromStorage = useHornoStore((s) => s.loadCurvaFromStorage)
+  const tInicio = useHornoStore((s) => s.tInicio)
 
   const estadoPrevioRef = useRef<string | null>(null)
+  const [xAhora, setXAhora] = useState<number | undefined>(undefined)
 
   useEffect(() => {
     if (!horno) return
@@ -36,6 +50,20 @@ export function HornoPage() {
     loadCurvaFromStorage()
   }, [loadCurvaFromStorage])
 
+  useEffect(() => {
+    if (!tInicio) {
+      setXAhora(undefined)
+      return
+    }
+    const actualizar = () => {
+      const min = (Date.now() - tInicio) / 60000
+      setXAhora(min)
+    }
+    actualizar()
+    const id = setInterval(actualizar, 5000)
+    return () => clearInterval(id)
+  }, [tInicio])
+
   async function parar() {
     if (!horno || !pass) return
     if (!confirm('¿Parar horneado?')) return
@@ -49,7 +77,7 @@ export function HornoPage() {
     }
   }
 
-  async function calcularYGuardarCurva() {
+  async function calcularYGuardarCurva(esNuevo: boolean) {
     if (!horno?.ip || !pass || !estado) return
     try {
       const progs = await fetchProgramasOnce(horno.ip, pass, horno.hornoId)
@@ -62,13 +90,16 @@ export function HornoPage() {
       )
       if (!match) return
       const tInicioReal = Date.now()
-      const t0Virtual = calcularT0Virtual(
-        match.pasos,
-        estado.temperatura,
-        tInicioReal
-      )
-      const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
-      setCurvaTeorica(match, puntos, t0Virtual, 20)
+      if (esNuevo) {
+        resetHistorial()
+        const tempInicioReal = estado.temperatura
+        const puntos = calcularCurvaTeorica(match.pasos, tempInicioReal, tInicioReal)
+        setCurvaTeorica(match, puntos, tInicioReal, tempInicioReal)
+      } else {
+        const t0Virtual = calcularT0Virtual(match.pasos, estado.temperatura, tInicioReal, 20)
+        const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
+        setCurvaTeorica(match, puntos, t0Virtual, 20)
+      }
     } catch (e) {
       console.error('[CURVA_TEORICA] error', e)
     }
@@ -78,19 +109,24 @@ export function HornoPage() {
     const estadoActual = estado?.estado ?? null
     const prev = estadoPrevioRef.current
 
-    const prevEraInactivo = prev === null || prev === 'idle' || prev === 'finalizado'
     const actualActivo = estadoActual === 'ejecutando' ||
                          estadoActual === 'rampa' ||
                          estadoActual === 'meseta'
     const prevEraActivo = prev === 'ejecutando' || prev === 'rampa' || prev === 'meseta'
     const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado'
 
-    if (prevEraInactivo && actualActivo) {
+    if (prev === null && actualActivo) {
       if (puntosTeoricos.length > 0) {
         estadoPrevioRef.current = estadoActual
         return
       }
-      calcularYGuardarCurva()
+      calcularYGuardarCurva(false)
+    } else if ((prev === 'idle' || prev === 'finalizado') && actualActivo) {
+      if (puntosTeoricos.length > 0) {
+        estadoPrevioRef.current = estadoActual
+        return
+      }
+      calcularYGuardarCurva(true)
     } else if (prevEraActivo && actualInactivo) {
       clearCurvaTeorica()
     }
@@ -104,21 +140,36 @@ export function HornoPage() {
   const temp = estado?.temperatura ?? 0
   const tempObj = estado?.tempObj ?? 0
   const estadoTxt = estado?.estado ?? 'sin datos'
-  const enProceso = estadoTxt === 'ejecutando'
+  const enProceso =
+    estadoTxt === 'ejecutando' ||
+    estadoTxt === 'rampa' ||
+    estadoTxt === 'meseta'
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white p-6">
+      <div className="max-w-md mx-auto">
       <header className="mb-8">
         <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
         <h1 className="text-2xl font-bold tracking-widest mt-1">HORNO</h1>
         <p className="text-sm text-neutral-400 mt-1">{horno.nombre}</p>
       </header>
 
-      <div className="flex items-center gap-2 mb-6">
-        <div className={`w-2 h-2 rounded-full ${mqttConectado ? 'bg-green-500' : 'bg-neutral-600'}`} />
-        <span className="text-xs text-neutral-400">
-          {mqttConectado ? 'Online MQTT' : 'Offline'}
-        </span>
+      <div className="flex justify-around items-center mb-6 px-2">
+        <LedEstado
+          activo={mqttConectado}
+          label={mqttConectado ? 'Online' : 'Offline'}
+          color={mqttConectado ? 'bg-green-500' : 'bg-neutral-600'}
+        />
+        <LedEstado
+          activo={enProceso}
+          label={enProceso ? 'Horneando' : 'Detenido'}
+          color={enProceso ? 'bg-orange-500' : 'bg-neutral-600'}
+        />
+        <LedEstado
+          activo={estado?.rele ?? false}
+          label={estado?.rele ? 'Resist. ON' : 'Resist. OFF'}
+          color={estado?.rele ? 'bg-orange-500' : 'bg-neutral-600'}
+        />
       </div>
 
       <div className="bg-neutral-900 rounded-2xl p-8 mb-6 text-center border border-neutral-800">
@@ -160,6 +211,7 @@ export function HornoPage() {
           puntos={historialTemp}
           tempObj={estado?.tempObj}
           puntosTeoricos={puntosTeoricos}
+          xAhora={xAhora}
         />
       </div>
 
@@ -190,6 +242,7 @@ export function HornoPage() {
       >
         Desvincular horno
       </button>
+      </div>
     </div>
   )
 }

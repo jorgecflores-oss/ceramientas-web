@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { EstadoMQTT, Horno, Programa, PuntoCurva } from '../types/horno'
 import { STORAGE_KEYS } from '../utils/constants'
+import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 
 interface AnclaStorage {
   timestampInicio: number
@@ -34,6 +35,7 @@ interface HornoState {
 }
 
 const MAX_HISTORIAL = 500
+let debounceCurvaTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useHornoStore = create<HornoState>((set, get) => ({
   hornoActivo: null,
@@ -86,6 +88,18 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const nuevo = [...arr, { t: Date.now(), temp }]
     if (nuevo.length > MAX_HISTORIAL) nuevo.shift()
     set({ historialTemp: nuevo })
+
+    const id = get().hornoActivo?.hornoId
+    if (!id) return
+
+    if (debounceCurvaTimer) clearTimeout(debounceCurvaTimer)
+    debounceCurvaTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEYS.CURVA(id), JSON.stringify(nuevo))
+      } catch (e) {
+        console.error('[pushTemp persist]', e)
+      }
+    }, 2000)
   },
 
   resetHistorial: () => set({ historialTemp: [] }),
@@ -111,8 +125,9 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const id = get().hornoActivo?.hornoId
     if (id) {
       localStorage.removeItem(STORAGE_KEYS.INICIO(id))
+      localStorage.removeItem(STORAGE_KEYS.CURVA(id))
     }
-    set({ programaActivo: null, puntosTeoricos: [], tInicio: null, tempInicio: null })
+    set({ programaActivo: null, puntosTeoricos: [], tInicio: null, tempInicio: null, historialTemp: [] })
   },
 
   loadCurvaFromStorage: () => {
@@ -122,12 +137,29 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     if (!raw) return
     try {
       const ancla = JSON.parse(raw) as AnclaStorage
+      const puntos = calcularCurvaTeorica(
+        ancla.programa.pasos,
+        ancla.tempInicio,
+        ancla.timestampInicio
+      )
       set({
         programaActivo: ancla.programa,
         tInicio: ancla.timestampInicio,
         tempInicio: ancla.tempInicio,
+        puntosTeoricos: puntos,
       })
-    } catch {}
+      try {
+        const rawCurva = localStorage.getItem(STORAGE_KEYS.CURVA(id))
+        if (rawCurva) {
+          const historial = JSON.parse(rawCurva) as { t: number; temp: number }[]
+          set({ historialTemp: historial })
+        }
+      } catch (e) {
+        console.error('[loadCurvaFromStorage curva real]', e)
+      }
+    } catch (e) {
+      console.error('[loadCurvaFromStorage]', e)
+    }
   },
 
   loadFromStorage: () => {
