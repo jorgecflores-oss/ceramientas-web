@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { PuntoCurva } from '../types/horno'
+import type { Snapshot } from '../store/hornoStore'
 import {
   LineChart,
   Line,
@@ -56,9 +57,11 @@ interface Props {
   tempObj?: number
   puntosTeoricos?: PuntoCurva[]
   xAhora?: number
+  ultimoYMax?: number | null
+  snapshot?: Snapshot | null
 }
 
-export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora }: Props) {
+export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora, ultimoYMax, snapshot }: Props) {
   const [cartelVisible, setCartelVisible] = useState(false)
 
   useEffect(() => {
@@ -72,7 +75,17 @@ export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora }: Pr
     setTimeout(() => setCartelVisible(true), 0)
   }
 
-  if (puntos.length === 0) {
+  const hayTeorica = puntosTeoricos && puntosTeoricos.length > 1
+  const modoSnapshot = !hayTeorica && !!snapshot && snapshot.puntosTeoricos.length > 1
+
+  const puntosEf: PuntoCurva[] = modoSnapshot ? snapshot!.historialTemp : puntos
+  const teoricoEf: PuntoCurva[] | undefined = modoSnapshot
+    ? snapshot!.puntosTeoricos
+    : (hayTeorica ? puntosTeoricos! : undefined)
+  const xAhoraEf: number | undefined = modoSnapshot ? snapshot!.xAhoraFinal : xAhora
+  const hayTeoricoEf = teoricoEf && teoricoEf.length > 1
+
+  if (puntosEf.length === 0) {
     return (
       <div className="flex items-center justify-center h-[320px] text-neutral-500 text-sm">
         Sin datos aún
@@ -80,52 +93,55 @@ export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora }: Pr
     )
   }
 
-  const hayTeorica = puntosTeoricos && puntosTeoricos.length > 1
-
   const tAll = [
-    ...puntos.map((p) => p.t),
-    ...(hayTeorica ? puntosTeoricos.map((p) => p.t) : []),
+    ...puntosEf.map((p) => p.t),
+    ...(hayTeoricoEf ? teoricoEf!.map((p) => p.t) : []),
   ]
   const t0 = Math.min(...tAll)
   const xMaxOriginal = Math.floor((Math.max(...tAll) - t0) / 60000)
 
-  const data = puntos.map((p) => ({
+  const data = puntosEf.map((p) => ({
     min: Math.floor((p.t - t0) / 60000),
     temp: p.temp,
   }))
 
-  const dataTeo = hayTeorica
-    ? puntosTeoricos.map((p) => ({
+  const dataTeo = hayTeoricoEf
+    ? teoricoEf!.map((p) => ({
         min: Math.floor((p.t - t0) / 60000),
         temp: p.temp,
       }))
     : undefined
 
-  const maxTempReal = Math.max(...puntos.map((p) => p.temp))
-  const maxTempTeorico = hayTeorica
-    ? Math.max(...puntosTeoricos.map((p) => p.temp))
+  const maxTempReal = Math.max(...puntosEf.map((p) => p.temp))
+  const maxTempTeorico = hayTeoricoEf
+    ? Math.max(...teoricoEf!.map((p) => p.temp))
     : 0
-  const yMax = Math.ceil(Math.max(maxTempReal + 50, maxTempTeorico + 20, 100))
+  let yMax = Math.ceil(Math.max(maxTempReal + 50, maxTempTeorico + 20, 100))
+  if (!hayTeoricoEf && ultimoYMax) {
+    yMax = ultimoYMax
+  }
 
-  const ticksX: number[] = hayTeorica
-    ? Array.from(new Set(puntosTeoricos!.map((p) => Math.round((p.t - t0) / 60000)))).sort((a, b) => a - b)
+  const ticksX: number[] = hayTeoricoEf
+    ? Array.from(new Set(teoricoEf!.map((p) => Math.round((p.t - t0) / 60000)))).sort((a, b) => a - b)
     : []
-  const ticksY: number[] = hayTeorica
-    ? Array.from(new Set(puntosTeoricos!.map((p) => p.temp))).sort((a, b) => a - b)
+  const ticksY: number[] = hayTeoricoEf
+    ? Array.from(new Set(teoricoEf!.map((p) => p.temp))).sort((a, b) => a - b)
     : []
-  const xMax = hayTeorica && ticksX.length > 0
+  const xMax = hayTeoricoEf && ticksX.length > 0
     ? Math.max(xMaxOriginal, ticksX[ticksX.length - 1])
     : xMaxOriginal
 
-  const ultimaTempReal = puntos.length > 0 ? puntos[puntos.length - 1].temp : 0
-  const tempTeoricaEnXAhora = hayTeorica && xAhora !== undefined
-    ? interpolarTemp(puntosTeoricos!, t0, xAhora)
+  const ultimaTempReal = puntosEf.length > 0 ? puntosEf[puntosEf.length - 1].temp : 0
+  const tempTeoricaEnXAhora = hayTeoricoEf && xAhoraEf !== undefined
+    ? interpolarTemp(teoricoEf!, t0, xAhoraEf)
     : 0
 
   return (
     <div>
       <div className="flex justify-between items-center mb-2">
-        <span className="text-xs text-neutral-400 uppercase tracking-wider">Curva</span>
+        <span className="text-xs text-neutral-400 uppercase tracking-wider">
+          {modoSnapshot ? 'Curva (última cocción)' : 'Curva'}
+        </span>
         <div className="flex gap-3 text-xs">
           <span className="flex items-center gap-1">
             <span className="inline-block w-3 h-0.5" style={{ background: '#FF6B35' }} />
@@ -189,9 +205,9 @@ export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora }: Pr
             dot={false}
             isAnimationActive={false}
           />
-          {xAhora !== undefined && xAhora >= 0 && (
+          {xAhoraEf !== undefined && xAhoraEf >= 0 && (
             <ReferenceLine
-              x={xAhora}
+              x={xAhoraEf}
               stroke="#4CAF50"
               strokeWidth={2}
               isFront
@@ -199,9 +215,9 @@ export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora }: Pr
           )}
         </LineChart>
       </ResponsiveContainer>
-      {hayTeorica && xAhora !== undefined && cartelVisible && (
+      {hayTeoricoEf && xAhoraEf !== undefined && cartelVisible && (
         <CartelFijo
-          xAhora={xAhora}
+          xAhora={xAhoraEf}
           xMax={xMax}
           tempReal={ultimaTempReal}
           tempTeorica={tempTeoricaEnXAhora}

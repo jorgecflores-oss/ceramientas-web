@@ -9,6 +9,13 @@ interface AnclaStorage {
   programa: Programa
 }
 
+export interface Snapshot {
+  puntosTeoricos: PuntoCurva[]
+  historialTemp: { t: number; temp: number }[]
+  tInicio: number
+  xAhoraFinal: number
+}
+
 interface HornoState {
   // Multi-horno colecciones
   hornos: Horno[]
@@ -33,6 +40,10 @@ interface HornoState {
   puntosTeoricos: PuntoCurva[]
   tInicio: number | null
   tempInicio: number | null
+  ultimosYMax: Record<string, number>
+  ultimoYMax: number | null
+  snapshots: Record<string, Snapshot | null>
+  snapshot: Snapshot | null
 
   // Acciones multi-horno
   agregarHorno: (h: Horno, pass: string) => void
@@ -49,6 +60,9 @@ interface HornoState {
   setProgramas: (p: Programa[]) => void
   setCurvaTeorica: (programa: Programa, puntos: PuntoCurva[], tInicio: number, tempInicio: number) => void
   clearCurvaTeorica: () => void
+  setUltimoYMax: (id: string, ymax: number) => void
+  guardarSnapshot: () => void
+  limpiarSnapshot: (id: string) => void
   loadCurvaFromStorage: () => void
   loadFromStorage: () => void
 }
@@ -81,6 +95,8 @@ interface MapsPartial {
   puntosTeoricosMap: Record<string, PuntoCurva[]>
   tIniciosMap: Record<string, number | null>
   tempIniciosMap: Record<string, number | null>
+  ultimosYMax: Record<string, number>
+  snapshots: Record<string, Snapshot | null>
 }
 
 function derivar(s: MapsPartial) {
@@ -96,6 +112,8 @@ function derivar(s: MapsPartial) {
     puntosTeoricos: id ? (s.puntosTeoricosMap[id] ?? []) : [],
     tInicio: id ? (s.tIniciosMap[id] ?? null) : null,
     tempInicio: id ? (s.tempIniciosMap[id] ?? null) : null,
+    ultimoYMax: id ? (s.ultimosYMax[id] ?? null) : null,
+    snapshot: id ? (s.snapshots[id] ?? null) : null,
   }
 }
 
@@ -123,6 +141,10 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   puntosTeoricos: [],
   tInicio: null,
   tempInicio: null,
+  ultimosYMax: {},
+  ultimoYMax: null,
+  snapshots: {},
+  snapshot: null,
 
   // --- Multi-horno ---
 
@@ -168,9 +190,13 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       ? (hornos[0]?.hornoId ?? null)
       : s.hornoActivoId
 
+    const ultimosYMax = removeKey(s.ultimosYMax, id)
+    const snapshots = removeKey(s.snapshots, id)
+    localStorage.removeItem(STORAGE_KEYS.SNAPSHOT(id))
     const maps: MapsPartial = {
       hornos, hornoActivoId, passwords, estados, historialTemps,
       programasCache, programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+      ultimosYMax, snapshots,
     }
     set({ ...maps, ...derivar(maps) })
   },
@@ -224,11 +250,15 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const puntosTeoricosMap = id ? removeKey(s.puntosTeoricosMap, id) : s.puntosTeoricosMap
     const tIniciosMap = id ? removeKey(s.tIniciosMap, id) : s.tIniciosMap
     const tempIniciosMap = id ? removeKey(s.tempIniciosMap, id) : s.tempIniciosMap
+    const ultimosYMax = id ? removeKey(s.ultimosYMax, id) : s.ultimosYMax
+    const snapshots = id ? removeKey(s.snapshots, id) : s.snapshots
+    if (id) localStorage.removeItem(STORAGE_KEYS.SNAPSHOT(id))
 
     const hornoActivoId = hornos[0]?.hornoId ?? null
     const maps: MapsPartial = {
       hornos, hornoActivoId, passwords, estados, historialTemps,
       programasCache, programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+      ultimosYMax, snapshots,
     }
     set({ ...maps, ...derivar(maps) })
   },
@@ -279,36 +309,76 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   setCurvaTeorica: (programa, puntos, tInicio, tempInicio) => {
     const id = get().hornoActivoId
     if (!id) return
+    get().limpiarSnapshot(id)
     const ancla: AnclaStorage = { timestampInicio: tInicio, tempInicio, programa }
     localStorage.setItem(STORAGE_KEYS.INICIO(id), JSON.stringify(ancla))
+
+    const yMaxTeorico = Math.ceil(Math.max(...puntos.map(p => p.temp)) + 40)
+    localStorage.setItem(STORAGE_KEYS.ULTIMO_YMAX(id), String(yMaxTeorico))
 
     const s = get()
     const programasActivos = { ...s.programasActivos, [id]: programa }
     const puntosTeoricosMap = { ...s.puntosTeoricosMap, [id]: puntos }
     const tIniciosMap = { ...s.tIniciosMap, [id]: tInicio }
     const tempIniciosMap = { ...s.tempIniciosMap, [id]: tempInicio }
+    const ultimosYMax = { ...s.ultimosYMax, [id]: yMaxTeorico }
     set({
-      programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+      programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap, ultimosYMax,
       programaActivo: programa, puntosTeoricos: puntos, tInicio, tempInicio,
+      ultimoYMax: yMaxTeorico,
     })
   },
 
   clearCurvaTeorica: () => {
     const id = get().hornoActivoId
     if (!id) return
+    get().guardarSnapshot()
     localStorage.removeItem(STORAGE_KEYS.INICIO(id))
-    localStorage.removeItem(STORAGE_KEYS.CURVA(id))
 
     const s = get()
     const programasActivos = { ...s.programasActivos, [id]: null }
     const puntosTeoricosMap = { ...s.puntosTeoricosMap, [id]: [] }
     const tIniciosMap = { ...s.tIniciosMap, [id]: null }
     const tempIniciosMap = { ...s.tempIniciosMap, [id]: null }
-    const historialTemps = { ...s.historialTemps, [id]: [] }
     set({
-      programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap, historialTemps,
-      programaActivo: null, puntosTeoricos: [], tInicio: null, tempInicio: null, historialTemp: [],
+      programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+      programaActivo: null, puntosTeoricos: [], tInicio: null, tempInicio: null,
     })
+  },
+
+  setUltimoYMax: (id, ymax) => {
+    localStorage.setItem(STORAGE_KEYS.ULTIMO_YMAX(id), String(ymax))
+    const s = get()
+    const ultimosYMax = { ...s.ultimosYMax, [id]: ymax }
+    const ultimoYMax = s.hornoActivoId === id ? ymax : s.ultimoYMax
+    set({ ultimosYMax, ultimoYMax })
+  },
+
+  guardarSnapshot: () => {
+    const s = get()
+    const id = s.hornoActivoId
+    if (!id) return
+    const tInicioActual = s.tIniciosMap[id] ?? null
+    const puntosTeoricoActuales = s.puntosTeoricosMap[id] ?? []
+    const histActual = s.historialTemps[id] ?? []
+    if (!tInicioActual || puntosTeoricoActuales.length <= 1 || histActual.length === 0) return
+    const snap: Snapshot = {
+      puntosTeoricos: puntosTeoricoActuales,
+      historialTemp: histActual,
+      tInicio: tInicioActual,
+      xAhoraFinal: (Date.now() - tInicioActual) / 60000,
+    }
+    try { localStorage.setItem(STORAGE_KEYS.SNAPSHOT(id), JSON.stringify(snap)) } catch {}
+    const snapshots = { ...s.snapshots, [id]: snap }
+    set({ snapshots, snapshot: snap })
+  },
+
+  limpiarSnapshot: (id) => {
+    localStorage.removeItem(STORAGE_KEYS.SNAPSHOT(id))
+    const s = get()
+    const snapshots = { ...s.snapshots, [id]: null }
+    const snapshot = s.hornoActivoId === id ? null : s.snapshot
+    set({ snapshots, snapshot })
   },
 
   loadCurvaFromStorage: () => {
@@ -374,9 +444,19 @@ export const useHornoStore = create<HornoState>((set, get) => ({
         const tempIniciosMap: Record<string, number | null> = {}
         const historialTemps: Record<string, { t: number; temp: number }[]> = {}
         const puntosTeoricosMap: Record<string, PuntoCurva[]> = {}
+        const ultimosYMax: Record<string, number> = {}
+        const snapshots: Record<string, Snapshot | null> = {}
 
         for (const h of hornos) {
           const id = h.hornoId
+
+          const ymaxRaw = localStorage.getItem(STORAGE_KEYS.ULTIMO_YMAX(id))
+          if (ymaxRaw) ultimosYMax[id] = Number(ymaxRaw)
+
+          const snapRaw = localStorage.getItem(STORAGE_KEYS.SNAPSHOT(id))
+          if (snapRaw) {
+            try { snapshots[id] = JSON.parse(snapRaw) as Snapshot } catch {}
+          }
 
           const progRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
           if (progRaw) {
@@ -414,6 +494,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
           hornos, hornoActivoId, passwords, estados: {},
           historialTemps, programasCache, programasActivos,
           puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+          ultimosYMax, snapshots,
         }
         set({ ...maps, ...derivar(maps) })
         return
@@ -446,6 +527,16 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const tempIniciosMap: Record<string, number | null> = {}
     const historialTemps: Record<string, { t: number; temp: number }[]> = {}
     const puntosTeoricosMap: Record<string, PuntoCurva[]> = {}
+    const ultimosYMax: Record<string, number> = {}
+    const snapshots: Record<string, Snapshot | null> = {}
+
+    const ymaxRaw = localStorage.getItem(STORAGE_KEYS.ULTIMO_YMAX(id))
+    if (ymaxRaw) ultimosYMax[id] = Number(ymaxRaw)
+
+    const snapRaw = localStorage.getItem(STORAGE_KEYS.SNAPSHOT(id))
+    if (snapRaw) {
+      try { snapshots[id] = JSON.parse(snapRaw) as Snapshot } catch {}
+    }
 
     const progRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
     if (progRaw) {
@@ -476,6 +567,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       hornos, hornoActivoId: id, passwords, estados: {},
       historialTemps, programasCache, programasActivos,
       puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+      ultimosYMax, snapshots,
     }
     set({ ...maps, ...derivar(maps) })
   },

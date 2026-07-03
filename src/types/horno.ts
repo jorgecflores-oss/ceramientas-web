@@ -1,5 +1,7 @@
 export type EstadoHorno = 'idle' | 'ejecutando' | 'pausado' | 'finalizado' | 'error'
 
+export type Page = 'horno' | 'programas' | 'historial' | 'config'
+
 export interface Horno {
   hornoId: string
   nombre: string

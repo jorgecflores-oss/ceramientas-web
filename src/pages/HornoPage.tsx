@@ -3,6 +3,7 @@ import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, publicarComando } from '../services/mqttService'
 import { postComando, fetchProgramasOnce, postConfig, getConfig, getEstado } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
+import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 
@@ -34,6 +35,8 @@ export function HornoPage() {
   const loadCurvaFromStorage = useHornoStore((s) => s.loadCurvaFromStorage)
   const setHorno = useHornoStore((s) => s.setHorno)
   const tInicio = useHornoStore((s) => s.tInicio)
+  const ultimoYMax = useHornoStore((s) => s.ultimoYMax)
+  const snapshot = useHornoStore((s) => s.snapshot)
 
   const estadoPrevioRef = useRef<string | null>(null)
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
@@ -45,7 +48,8 @@ export function HornoPage() {
     if (!horno) return
     const unsub = suscribirEstado(horno.hornoId, (data) => {
       setEstado(data)
-      pushTemp(data.temperatura)
+      const activo = data.estado === 'ejecutando' || data.estado === 'rampa' || data.estado === 'meseta'
+      if (activo) pushTemp(data.temperatura)
     })
     return unsub
   }, [horno, setEstado, pushTemp])
@@ -199,8 +203,9 @@ export function HornoPage() {
     estadoTxt === 'meseta'
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white p-6">
+    <div className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
       <div className="max-w-md mx-auto">
+      <SelectorHorno />
       <header className="mb-6">
         <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
         {editandoNombre ? (
@@ -295,6 +300,8 @@ export function HornoPage() {
           tempObj={estado?.tempObj}
           puntosTeoricos={puntosTeoricos}
           xAhora={xAhora}
+          ultimoYMax={ultimoYMax}
+          snapshot={snapshot}
         />
       </div>
 
