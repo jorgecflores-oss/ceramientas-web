@@ -13,4 +13,5 @@ export const STORAGE_KEYS = {
   INICIO: (id: string) => `@ceramientas_inicio_${id}`,
   PROGRAMAS_CACHE: (id: string) => `@ceramientas_programas_${id}`,
   CURVA: (id: string) => `@ceramientas_curva_${id}`,
+  POTENCIA: (id: string) => `@ceramientas_potencia_${id}`,
 } as const

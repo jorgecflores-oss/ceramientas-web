@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import type { PuntoCurva } from '../types/horno'
 import {
   LineChart,
@@ -5,10 +6,8 @@ import {
   XAxis,
   YAxis,
   ResponsiveContainer,
-  Tooltip,
   CartesianGrid,
   ReferenceLine,
-  Legend,
 } from 'recharts'
 
 function formatearTickX(min: number): string {
@@ -16,6 +15,40 @@ function formatearTickX(min: number): string {
   const h = Math.floor(min / 60)
   const m = min % 60
   return `${h}:${m.toString().padStart(2, '0')}`
+}
+
+function interpolarTemp(puntos: PuntoCurva[], t0: number, minAhora: number): number {
+  for (let i = 1; i < puntos.length; i++) {
+    const m0 = (puntos[i - 1].t - t0) / 60000
+    const m1 = (puntos[i].t - t0) / 60000
+    if (minAhora >= m0 && minAhora <= m1) {
+      const ratio = (minAhora - m0) / (m1 - m0)
+      return puntos[i - 1].temp + ratio * (puntos[i].temp - puntos[i - 1].temp)
+    }
+  }
+  return puntos[puntos.length - 1].temp
+}
+
+function CartelFijo({ xAhora, xMax, tempReal, tempTeorica }: {
+  xAhora: number
+  xMax: number
+  tempReal: number
+  tempTeorica: number
+}) {
+  const delta = tempReal - tempTeorica
+  const porcentajeX = Math.min(Math.max((xAhora / xMax) * 100, 10), 80)
+  return (
+    <div
+      className="absolute top-8 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs pointer-events-none"
+      style={{ left: `${porcentajeX}%`, transform: 'translateX(-50%)' }}
+    >
+      <div className="text-orange-400">Real: {Math.round(tempReal)}°C</div>
+      <div className="text-blue-300">Teórica: {Math.round(tempTeorica)}°C</div>
+      <div className={`font-semibold ${delta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+        Δ: {delta >= 0 ? '+' : ''}{Math.round(delta)}°C
+      </div>
+    </div>
+  )
 }
 
 interface Props {
@@ -26,9 +59,22 @@ interface Props {
 }
 
 export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora }: Props) {
+  const [cartelVisible, setCartelVisible] = useState(false)
+
+  useEffect(() => {
+    if (!cartelVisible) return
+    const timer = setTimeout(() => setCartelVisible(false), 5000)
+    return () => clearTimeout(timer)
+  }, [cartelVisible])
+
+  const mostrarCartel = () => {
+    setCartelVisible(false)
+    setTimeout(() => setCartelVisible(true), 0)
+  }
+
   if (puntos.length === 0) {
     return (
-      <div className="flex items-center justify-center h-[220px] text-neutral-500 text-sm">
+      <div className="flex items-center justify-center h-[320px] text-neutral-500 text-sm">
         Sin datos aún
       </div>
     )
@@ -71,77 +117,97 @@ export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora }: Pr
     ? Math.max(xMaxOriginal, ticksX[ticksX.length - 1])
     : xMaxOriginal
 
+  const ultimaTempReal = puntos.length > 0 ? puntos[puntos.length - 1].temp : 0
+  const tempTeoricaEnXAhora = hayTeorica && xAhora !== undefined
+    ? interpolarTemp(puntosTeoricos!, t0, xAhora)
+    : 0
+
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <LineChart data={data} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
-        <XAxis
-          dataKey="min"
-          type="number"
-          domain={[0, xMax]}
-          ticks={ticksX.length > 0 ? ticksX : undefined}
-          interval={0}
-          tickFormatter={formatearTickX}
-          tick={{ fill: '#AAAAAA', fontSize: 10 }}
-          angle={-30}
-          textAnchor="end"
-          height={45}
-          label={{ value: 'min', position: 'insideBottomRight', offset: -4, fill: '#737373', fontSize: 11 }}
-        />
-        <YAxis
-          domain={[0, yMax]}
-          ticks={ticksY.length > 0 ? ticksY : undefined}
-          interval={0}
-          minTickGap={1}
-          tick={{ fill: '#AAAAAA', fontSize: 10 }}
-          label={{ value: '°C', angle: -90, position: 'insideLeft', fill: '#737373', fontSize: 11 }}
-          width={36}
-        />
-        <Tooltip
-          cursor={false}
-          contentStyle={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: 8 }}
-          labelStyle={{ color: '#a3a3a3', fontSize: 11 }}
-          itemStyle={{ color: '#ffffff', fontSize: 12 }}
-          formatter={(value: string | number, name: string | number) => [`${value}°C`, String(name)]}
-          labelFormatter={(label: string | number) => `${label} min`}
-        />
-        <Legend
-          verticalAlign="top"
-          height={24}
-          iconType="line"
-          wrapperStyle={{ fontSize: 11, color: '#AAAAAA' }}
-        />
-        {dataTeo && (
+    <div>
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-xs text-neutral-400 uppercase tracking-wider">Curva</span>
+        <div className="flex gap-3 text-xs">
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5" style={{ background: '#FF6B35' }} />
+            <span className="text-neutral-400">Real</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3 h-0.5 border-t border-dashed" style={{ borderColor: '#64B5F6' }} />
+            <span className="text-neutral-400">Teórica</span>
+          </span>
+        </div>
+      </div>
+      <div
+        className="relative w-full h-[380px]"
+        onClick={mostrarCartel}
+        onTouchStart={mostrarCartel}
+      >
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 10, right: 20, left: 5, bottom: 25 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" />
+          <XAxis
+            dataKey="min"
+            type="number"
+            domain={[0, xMax]}
+            ticks={ticksX.length > 0 ? ticksX : undefined}
+            interval={0}
+            tickFormatter={formatearTickX}
+            tick={{ fill: '#AAAAAA', fontSize: 10 }}
+            angle={-30}
+            textAnchor="end"
+            height={60}
+            label={{ value: 'Hs:min', position: 'insideBottom', offset: 0, fill: '#AAAAAA', fontSize: 10 }}
+          />
+          <YAxis
+            domain={[0, yMax]}
+            ticks={ticksY.length > 0 ? ticksY : undefined}
+            interval={0}
+            minTickGap={1}
+            tick={{ fill: '#AAAAAA', fontSize: 10 }}
+            label={{ value: '°C', angle: -90, position: 'insideLeft', fill: '#AAAAAA', fontSize: 10, offset: 15 }}
+            width={36}
+          />
+          {dataTeo && (
+            <Line
+              data={dataTeo}
+              type="linear"
+              dataKey="temp"
+              name="Teórica"
+              stroke="#64B5F6"
+              strokeWidth={1.5}
+              strokeDasharray="6 4"
+              dot={{ fill: '#64B5F6', r: 3 }}
+              isAnimationActive={false}
+            />
+          )}
           <Line
-            data={dataTeo}
-            type="linear"
+            type="monotone"
             dataKey="temp"
-            name="Teórica"
-            stroke="#64B5F6"
-            strokeWidth={1.5}
-            strokeDasharray="6 4"
-            dot={{ fill: '#64B5F6', r: 3 }}
+            name="Real"
+            stroke="#FF6B35"
+            strokeWidth={2}
+            dot={false}
             isAnimationActive={false}
           />
-        )}
-        <Line
-          type="monotone"
-          dataKey="temp"
-          name="Real"
-          stroke="#FF6B35"
-          strokeWidth={2}
-          dot={false}
-          isAnimationActive={false}
+          {xAhora !== undefined && xAhora >= 0 && (
+            <ReferenceLine
+              x={xAhora}
+              stroke="#4CAF50"
+              strokeWidth={2}
+              isFront
+            />
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+      {hayTeorica && xAhora !== undefined && cartelVisible && (
+        <CartelFijo
+          xAhora={xAhora}
+          xMax={xMax}
+          tempReal={ultimaTempReal}
+          tempTeorica={tempTeoricaEnXAhora}
         />
-        {xAhora !== undefined && xAhora >= 0 && (
-          <ReferenceLine
-            x={xAhora}
-            stroke="#4CAF50"
-            strokeWidth={2}
-            isFront
-          />
-        )}
-      </LineChart>
-    </ResponsiveContainer>
+      )}
+      </div>
+    </div>
   )
 }

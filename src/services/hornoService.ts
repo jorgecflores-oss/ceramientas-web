@@ -64,6 +64,20 @@ export async function getConfig(ip: string, pass: string) {
   return res.json()
 }
 
+export async function postConfig(
+  ip: string,
+  pass: string,
+  config: { nombre?: string; potencia?: number }
+) {
+  const res = await fetchTimeout(`http://${ip}/config`, {
+    method: 'POST',
+    headers: { 'X-Auth': pass, 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
 export async function postComando(ip: string, pass: string, comando: string) {
   const res = await fetchTimeout(`http://${ip}/comando`, {
     method: 'POST',

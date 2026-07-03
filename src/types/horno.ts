@@ -5,6 +5,7 @@ export interface Horno {
   nombre: string
   ip?: string
   version?: string
+  potencia?: number
 }
 
 export interface EstadoMQTT {

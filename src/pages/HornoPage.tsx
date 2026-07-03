@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, publicarComando } from '../services/mqttService'
-import { postComando, fetchProgramasOnce } from '../services/hornoService'
+import { postComando, fetchProgramasOnce, postConfig, getConfig } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
@@ -32,10 +32,14 @@ export function HornoPage() {
   const clearCurvaTeorica = useHornoStore((s) => s.clearCurvaTeorica)
   const resetHistorial = useHornoStore((s) => s.resetHistorial)
   const loadCurvaFromStorage = useHornoStore((s) => s.loadCurvaFromStorage)
+  const setHorno = useHornoStore((s) => s.setHorno)
   const tInicio = useHornoStore((s) => s.tInicio)
 
   const estadoPrevioRef = useRef<string | null>(null)
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
+  const [editandoNombre, setEditandoNombre] = useState(false)
+  const [nombreInput, setNombreInput] = useState('')
+  const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     if (!horno) return
@@ -49,6 +53,19 @@ export function HornoPage() {
   useEffect(() => {
     loadCurvaFromStorage()
   }, [loadCurvaFromStorage])
+
+  useEffect(() => {
+    if (!horno?.ip || !pass) return
+    getConfig(horno.ip, pass)
+      .then(cfg => {
+        setHorno(
+          { ...horno, potencia: cfg.potencia, nombre: cfg.nombre ?? horno.nombre },
+          pass
+        )
+      })
+      .catch(e => console.error('[getConfig]', e))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [horno?.hornoId, horno?.ip, pass])
 
   useEffect(() => {
     if (!tInicio) {
@@ -135,6 +152,20 @@ export function HornoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado?.estado])
 
+  async function guardarNombre() {
+    if (!horno?.ip || !pass || !nombreInput.trim()) return
+    setGuardando(true)
+    try {
+      await postConfig(horno.ip, pass, { nombre: nombreInput.trim() })
+      setHorno({ ...horno, nombre: nombreInput.trim() }, pass)
+      setEditandoNombre(false)
+    } catch (e) {
+      alert('Error guardando nombre')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   if (!horno) return null
 
   const temp = estado?.temperatura ?? 0
@@ -148,10 +179,47 @@ export function HornoPage() {
   return (
     <div className="min-h-screen bg-neutral-950 text-white p-6">
       <div className="max-w-md mx-auto">
-      <header className="mb-8">
+      <header className="mb-6">
         <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
-        <h1 className="text-2xl font-bold tracking-widest mt-1">HORNO</h1>
-        <p className="text-sm text-neutral-400 mt-1">{horno.nombre}</p>
+        {editandoNombre ? (
+          <div className="flex gap-2 items-center mt-1">
+            <input
+              type="text"
+              value={nombreInput}
+              onChange={e => setNombreInput(e.target.value)}
+              maxLength={19}
+              autoFocus
+              className="flex-1 px-2 py-1 bg-neutral-900 border border-orange-500 rounded text-2xl font-bold text-white"
+            />
+            <button
+              onClick={guardarNombre}
+              disabled={guardando}
+              className="px-3 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-sm font-semibold"
+            >
+              {guardando ? '...' : 'OK'}
+            </button>
+            <button
+              onClick={() => setEditandoNombre(false)}
+              disabled={guardando}
+              className="px-2 py-2 text-neutral-400 hover:text-white text-sm"
+            >
+              ✕
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => {
+              setNombreInput(horno.nombre)
+              setEditandoNombre(true)
+            }}
+            className="text-2xl font-bold text-white mt-1 hover:text-orange-400 transition text-left"
+          >
+            {horno.nombre} ✎
+          </button>
+        )}
+        {horno.potencia && (
+          <p className="text-sm text-neutral-400 mt-1">{horno.potencia} W</p>
+        )}
       </header>
 
       <div className="flex justify-around items-center mb-6 px-2">
@@ -180,33 +248,26 @@ export function HornoPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
-          <p className="text-xs text-neutral-400 uppercase">Estado</p>
-          <p className="text-lg font-semibold mt-1">{estadoTxt}</p>
-        </div>
-        <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+      <div className="grid grid-cols-3 gap-2 mb-6">
+        <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800">
           <p className="text-xs text-neutral-400 uppercase">Etapa</p>
           <p className="text-lg font-semibold mt-1">
             {estado?.etapa ?? 0}/{estado?.etapaTotal ?? 0}
           </p>
         </div>
-        <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+        <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800">
+          <p className="text-xs text-neutral-400 uppercase">Estado</p>
+          <p className="text-lg font-semibold mt-1">{estadoTxt}</p>
+        </div>
+        <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800">
           <p className="text-xs text-neutral-400 uppercase">Tiempo</p>
           <p className="text-lg font-semibold mt-1">
             {estado?.horas ?? 0}h {estado?.minutos ?? 0}m
           </p>
         </div>
-        <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
-          <p className="text-xs text-neutral-400 uppercase">Relé</p>
-          <p className={`text-lg font-semibold mt-1 ${estado?.rele ? 'text-orange-500' : ''}`}>
-            {estado?.rele ? 'ON' : 'OFF'}
-          </p>
-        </div>
       </div>
 
       <div className="bg-neutral-900 rounded-2xl p-4 border border-neutral-800 mb-6">
-        <p className="text-xs text-neutral-400 uppercase tracking-wider mb-3">Curva</p>
         <CurvaGrafico
           puntos={historialTemp}
           tempObj={estado?.tempObj}
@@ -228,12 +289,14 @@ export function HornoPage() {
       )}
 
       {enProceso && (
-        <button
-          onClick={parar}
-          className="w-full py-4 bg-red-600 hover:bg-red-700 rounded-lg font-bold tracking-wider transition mb-4"
-        >
-          PARAR
-        </button>
+        <div className="flex justify-center mb-4">
+          <button
+            onClick={parar}
+            className="px-12 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold tracking-wider transition"
+          >
+            PARAR
+          </button>
+        </div>
       )}
 
       <button

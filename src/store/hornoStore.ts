@@ -55,6 +55,9 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     if (h.ip) {
       localStorage.setItem(STORAGE_KEYS.IP_CACHE(h.hornoId), h.ip)
     }
+    if (h.potencia) {
+      localStorage.setItem(STORAGE_KEYS.POTENCIA(h.hornoId), String(h.potencia))
+    }
     set({ hornoActivo: h, password: pass })
   },
 
@@ -168,6 +171,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const pass = localStorage.getItem(STORAGE_KEYS.PASS(id))
     if (!pass) return
     const ip = localStorage.getItem(STORAGE_KEYS.IP_CACHE(id))
+    const pot = localStorage.getItem(STORAGE_KEYS.POTENCIA(id))
 
     const programasRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
     const programas: Programa[] = programasRaw ? (JSON.parse(programasRaw) as Programa[]) : []
@@ -186,7 +190,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     }
 
     set({
-      hornoActivo: { hornoId: id, nombre: `Horno ${id.slice(-6)}`, ip: ip ?? undefined },
+      hornoActivo: { hornoId: id, nombre: `Horno ${id.slice(-6)}`, ip: ip ?? undefined, potencia: pot ? Number(pot) : undefined },
       password: pass,
       programas,
       programaActivo,
