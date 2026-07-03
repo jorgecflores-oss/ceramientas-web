@@ -7,6 +7,7 @@ export const AP_IP = '192.168.4.1'
 
 export const STORAGE_KEYS = {
   HORNO_ID: '@ceramientas_horno_id',
+  HORNOS_LISTA: '@ceramientas_hornos_lista',
   PASS: (id: string) => `@ceramientas_pass_${id}`,
   IP_CACHE: (id: string) => `@ceramientas_ip_${id}`,
   PROGRAMAS: (id: string) => `@ceramientas_programas_${id}`,

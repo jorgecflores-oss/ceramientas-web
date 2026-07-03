@@ -10,10 +10,23 @@ interface AnclaStorage {
 }
 
 interface HornoState {
+  // Multi-horno colecciones
+  hornos: Horno[]
+  hornoActivoId: string | null
+  passwords: Record<string, string>
+  estados: Record<string, EstadoMQTT | null>
+  historialTemps: Record<string, { t: number; temp: number }[]>
+  programasCache: Record<string, Programa[]>
+  programasActivos: Record<string, Programa | null>
+  puntosTeoricosMap: Record<string, PuntoCurva[]>
+  tIniciosMap: Record<string, number | null>
+  tempIniciosMap: Record<string, number | null>
+  mqttConectado: boolean
+
+  // Vista single-horno derivada (backward compat)
   hornoActivo: Horno | null
   password: string | null
   estado: EstadoMQTT | null
-  mqttConectado: boolean
   historialTemp: { t: number; temp: number }[]
   programas: Programa[]
   programaActivo: Programa | null
@@ -21,6 +34,12 @@ interface HornoState {
   tInicio: number | null
   tempInicio: number | null
 
+  // Acciones multi-horno
+  agregarHorno: (h: Horno, pass: string) => void
+  quitarHorno: (id: string) => void
+  setHornoActivo: (id: string) => void
+
+  // Acciones single-horno (backward compat, firmas idénticas)
   setHorno: (h: Horno, pass: string) => void
   clearHorno: () => void
   setEstado: (e: EstadoMQTT) => void
@@ -35,13 +54,69 @@ interface HornoState {
 }
 
 const MAX_HISTORIAL = 500
-let debounceCurvaTimer: ReturnType<typeof setTimeout> | null = null
+const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+
+function removeKey<T>(record: Record<string, T>, id: string): Record<string, T> {
+  const copy = { ...record }
+  delete copy[id]
+  return copy
+}
+
+function persistirLista(hornos: Horno[]) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.HORNOS_LISTA, JSON.stringify(hornos))
+  } catch (e) {
+    console.error('[persistirLista]', e)
+  }
+}
+
+interface MapsPartial {
+  hornos: Horno[]
+  hornoActivoId: string | null
+  passwords: Record<string, string>
+  estados: Record<string, EstadoMQTT | null>
+  historialTemps: Record<string, { t: number; temp: number }[]>
+  programasCache: Record<string, Programa[]>
+  programasActivos: Record<string, Programa | null>
+  puntosTeoricosMap: Record<string, PuntoCurva[]>
+  tIniciosMap: Record<string, number | null>
+  tempIniciosMap: Record<string, number | null>
+}
+
+function derivar(s: MapsPartial) {
+  const id = s.hornoActivoId
+  const hornoActivo = id ? (s.hornos.find(h => h.hornoId === id) ?? null) : null
+  return {
+    hornoActivo,
+    password: id ? (s.passwords[id] ?? null) : null,
+    estado: id ? (s.estados[id] ?? null) : null,
+    historialTemp: id ? (s.historialTemps[id] ?? []) : [],
+    programas: id ? (s.programasCache[id] ?? []) : [],
+    programaActivo: id ? (s.programasActivos[id] ?? null) : null,
+    puntosTeoricos: id ? (s.puntosTeoricosMap[id] ?? []) : [],
+    tInicio: id ? (s.tIniciosMap[id] ?? null) : null,
+    tempInicio: id ? (s.tempIniciosMap[id] ?? null) : null,
+  }
+}
 
 export const useHornoStore = create<HornoState>((set, get) => ({
+  // Multi-horno colecciones
+  hornos: [],
+  hornoActivoId: null,
+  passwords: {},
+  estados: {},
+  historialTemps: {},
+  programasCache: {},
+  programasActivos: {},
+  puntosTeoricosMap: {},
+  tIniciosMap: {},
+  tempIniciosMap: {},
+  mqttConectado: false,
+
+  // Vista derivada — se calculará al cargar desde storage; inicial vacía
   hornoActivo: null,
   password: null,
   estado: null,
-  mqttConectado: false,
   historialTemp: [],
   programas: [],
   programaActivo: null,
@@ -49,54 +124,135 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   tInicio: null,
   tempInicio: null,
 
-  setHorno: (h, pass) => {
-    localStorage.setItem(STORAGE_KEYS.HORNO_ID, h.hornoId)
+  // --- Multi-horno ---
+
+  agregarHorno: (h, pass) => {
+    const s = get()
+    const yaExiste = s.hornos.some(x => x.hornoId === h.hornoId)
+    const hornos = yaExiste
+      ? s.hornos.map(x => (x.hornoId === h.hornoId ? h : x))
+      : [...s.hornos, h]
+    const passwords = { ...s.passwords, [h.hornoId]: pass }
+
+    if (h.ip) localStorage.setItem(STORAGE_KEYS.IP_CACHE(h.hornoId), h.ip)
+    if (h.potencia) localStorage.setItem(STORAGE_KEYS.POTENCIA(h.hornoId), String(h.potencia))
     localStorage.setItem(STORAGE_KEYS.PASS(h.hornoId), pass)
-    if (h.ip) {
-      localStorage.setItem(STORAGE_KEYS.IP_CACHE(h.hornoId), h.ip)
+    persistirLista(hornos)
+
+    const hornoActivoId = s.hornoActivoId ?? h.hornoId
+    const maps: MapsPartial = { ...s, hornos, passwords, hornoActivoId }
+    set({ hornos, passwords, hornoActivoId, ...derivar(maps) })
+  },
+
+  quitarHorno: (id) => {
+    const s = get()
+    const hornos = s.hornos.filter(h => h.hornoId !== id)
+    const passwords = removeKey(s.passwords, id)
+    const estados = removeKey(s.estados, id)
+    const historialTemps = removeKey(s.historialTemps, id)
+    const programasCache = removeKey(s.programasCache, id)
+    const programasActivos = removeKey(s.programasActivos, id)
+    const puntosTeoricosMap = removeKey(s.puntosTeoricosMap, id)
+    const tIniciosMap = removeKey(s.tIniciosMap, id)
+    const tempIniciosMap = removeKey(s.tempIniciosMap, id)
+
+    localStorage.removeItem(STORAGE_KEYS.PASS(id))
+    localStorage.removeItem(STORAGE_KEYS.IP_CACHE(id))
+    localStorage.removeItem(STORAGE_KEYS.POTENCIA(id))
+    localStorage.removeItem(STORAGE_KEYS.INICIO(id))
+    localStorage.removeItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
+    localStorage.removeItem(STORAGE_KEYS.CURVA(id))
+    persistirLista(hornos)
+
+    const hornoActivoId = s.hornoActivoId === id
+      ? (hornos[0]?.hornoId ?? null)
+      : s.hornoActivoId
+
+    const maps: MapsPartial = {
+      hornos, hornoActivoId, passwords, estados, historialTemps,
+      programasCache, programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
     }
-    if (h.potencia) {
-      localStorage.setItem(STORAGE_KEYS.POTENCIA(h.hornoId), String(h.potencia))
-    }
-    set({ hornoActivo: h, password: pass })
+    set({ ...maps, ...derivar(maps) })
+  },
+
+  setHornoActivo: (id) => {
+    const s = get()
+    const maps: MapsPartial = { ...s, hornoActivoId: id }
+    set({ hornoActivoId: id, ...derivar(maps) })
+  },
+
+  // --- Single-horno backward compat ---
+
+  setHorno: (h, pass) => {
+    const s = get()
+    const yaExiste = s.hornos.some(x => x.hornoId === h.hornoId)
+    const hornos = yaExiste
+      ? s.hornos.map(x => (x.hornoId === h.hornoId ? h : x))
+      : [...s.hornos, h]
+    const passwords = { ...s.passwords, [h.hornoId]: pass }
+
+    localStorage.setItem(STORAGE_KEYS.PASS(h.hornoId), pass)
+    localStorage.setItem(STORAGE_KEYS.HORNO_ID, h.hornoId)
+    if (h.ip) localStorage.setItem(STORAGE_KEYS.IP_CACHE(h.hornoId), h.ip)
+    if (h.potencia) localStorage.setItem(STORAGE_KEYS.POTENCIA(h.hornoId), String(h.potencia))
+    persistirLista(hornos)
+
+    const hornoActivoId = h.hornoId
+    const maps: MapsPartial = { ...s, hornos, passwords, hornoActivoId }
+    set({ hornos, passwords, hornoActivoId, ...derivar(maps) })
   },
 
   clearHorno: () => {
-    const id = get().hornoActivo?.hornoId
+    const id = get().hornoActivoId
     if (id) {
       localStorage.removeItem(STORAGE_KEYS.PASS(id))
       localStorage.removeItem(STORAGE_KEYS.INICIO(id))
       localStorage.removeItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
+      localStorage.removeItem(STORAGE_KEYS.CURVA(id))
     }
     localStorage.removeItem(STORAGE_KEYS.HORNO_ID)
-    set({
-      hornoActivo: null,
-      password: null,
-      estado: null,
-      historialTemp: [],
-      programas: [],
-      programaActivo: null,
-      puntosTeoricos: [],
-      tInicio: null,
-      tempInicio: null,
-    })
+
+    const s = get()
+    const hornos = id ? s.hornos.filter(h => h.hornoId !== id) : s.hornos
+    persistirLista(hornos)
+
+    const passwords = id ? removeKey(s.passwords, id) : s.passwords
+    const estados = id ? removeKey(s.estados, id) : s.estados
+    const historialTemps = id ? removeKey(s.historialTemps, id) : s.historialTemps
+    const programasCache = id ? removeKey(s.programasCache, id) : s.programasCache
+    const programasActivos = id ? removeKey(s.programasActivos, id) : s.programasActivos
+    const puntosTeoricosMap = id ? removeKey(s.puntosTeoricosMap, id) : s.puntosTeoricosMap
+    const tIniciosMap = id ? removeKey(s.tIniciosMap, id) : s.tIniciosMap
+    const tempIniciosMap = id ? removeKey(s.tempIniciosMap, id) : s.tempIniciosMap
+
+    const hornoActivoId = hornos[0]?.hornoId ?? null
+    const maps: MapsPartial = {
+      hornos, hornoActivoId, passwords, estados, historialTemps,
+      programasCache, programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+    }
+    set({ ...maps, ...derivar(maps) })
   },
 
-  setEstado: (e) => set({ estado: e }),
+  setEstado: (e) => {
+    const id = get().hornoActivoId
+    if (!id) return
+    const estados = { ...get().estados, [id]: e }
+    set({ estados, estado: e })
+  },
 
   setMqttConectado: (c) => set({ mqttConectado: c }),
 
   pushTemp: (temp) => {
-    const arr = get().historialTemp
-    const nuevo = [...arr, { t: Date.now(), temp }]
-    if (nuevo.length > MAX_HISTORIAL) nuevo.shift()
-    set({ historialTemp: nuevo })
-
-    const id = get().hornoActivo?.hornoId
+    const id = get().hornoActivoId
     if (!id) return
+    const prev = get().historialTemps[id] ?? []
+    const nuevo = [...prev, { t: Date.now(), temp }]
+    if (nuevo.length > MAX_HISTORIAL) nuevo.shift()
+    const historialTemps = { ...get().historialTemps, [id]: nuevo }
+    set({ historialTemps, historialTemp: nuevo })
 
-    if (debounceCurvaTimer) clearTimeout(debounceCurvaTimer)
-    debounceCurvaTimer = setTimeout(() => {
+    if (debounceTimers[id]) clearTimeout(debounceTimers[id])
+    debounceTimers[id] = setTimeout(() => {
       try {
         localStorage.setItem(STORAGE_KEYS.CURVA(id), JSON.stringify(nuevo))
       } catch (e) {
@@ -105,36 +261,58 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     }, 2000)
   },
 
-  resetHistorial: () => set({ historialTemp: [] }),
+  resetHistorial: () => {
+    const id = get().hornoActivoId
+    if (!id) return
+    const historialTemps = { ...get().historialTemps, [id]: [] }
+    set({ historialTemps, historialTemp: [] })
+  },
 
   setProgramas: (p) => {
-    const id = get().hornoActivo?.hornoId
-    if (id) {
-      localStorage.setItem(STORAGE_KEYS.PROGRAMAS_CACHE(id), JSON.stringify(p))
-    }
-    set({ programas: p })
+    const id = get().hornoActivoId
+    if (!id) return
+    localStorage.setItem(STORAGE_KEYS.PROGRAMAS_CACHE(id), JSON.stringify(p))
+    const programasCache = { ...get().programasCache, [id]: p }
+    set({ programasCache, programas: p })
   },
 
   setCurvaTeorica: (programa, puntos, tInicio, tempInicio) => {
-    const id = get().hornoActivo?.hornoId
-    if (id) {
-      const ancla: AnclaStorage = { timestampInicio: tInicio, tempInicio, programa }
-      localStorage.setItem(STORAGE_KEYS.INICIO(id), JSON.stringify(ancla))
-    }
-    set({ programaActivo: programa, puntosTeoricos: puntos, tInicio, tempInicio })
+    const id = get().hornoActivoId
+    if (!id) return
+    const ancla: AnclaStorage = { timestampInicio: tInicio, tempInicio, programa }
+    localStorage.setItem(STORAGE_KEYS.INICIO(id), JSON.stringify(ancla))
+
+    const s = get()
+    const programasActivos = { ...s.programasActivos, [id]: programa }
+    const puntosTeoricosMap = { ...s.puntosTeoricosMap, [id]: puntos }
+    const tIniciosMap = { ...s.tIniciosMap, [id]: tInicio }
+    const tempIniciosMap = { ...s.tempIniciosMap, [id]: tempInicio }
+    set({
+      programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+      programaActivo: programa, puntosTeoricos: puntos, tInicio, tempInicio,
+    })
   },
 
   clearCurvaTeorica: () => {
-    const id = get().hornoActivo?.hornoId
-    if (id) {
-      localStorage.removeItem(STORAGE_KEYS.INICIO(id))
-      localStorage.removeItem(STORAGE_KEYS.CURVA(id))
-    }
-    set({ programaActivo: null, puntosTeoricos: [], tInicio: null, tempInicio: null, historialTemp: [] })
+    const id = get().hornoActivoId
+    if (!id) return
+    localStorage.removeItem(STORAGE_KEYS.INICIO(id))
+    localStorage.removeItem(STORAGE_KEYS.CURVA(id))
+
+    const s = get()
+    const programasActivos = { ...s.programasActivos, [id]: null }
+    const puntosTeoricosMap = { ...s.puntosTeoricosMap, [id]: [] }
+    const tIniciosMap = { ...s.tIniciosMap, [id]: null }
+    const tempIniciosMap = { ...s.tempIniciosMap, [id]: null }
+    const historialTemps = { ...s.historialTemps, [id]: [] }
+    set({
+      programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap, historialTemps,
+      programaActivo: null, puntosTeoricos: [], tInicio: null, tempInicio: null, historialTemp: [],
+    })
   },
 
   loadCurvaFromStorage: () => {
-    const id = get().hornoActivo?.hornoId
+    const id = get().hornoActivoId
     if (!id) return
     const raw = localStorage.getItem(STORAGE_KEYS.INICIO(id))
     if (!raw) return
@@ -145,17 +323,24 @@ export const useHornoStore = create<HornoState>((set, get) => ({
         ancla.tempInicio,
         ancla.timestampInicio
       )
+      const s = get()
+      const programasActivos = { ...s.programasActivos, [id]: ancla.programa }
+      const puntosTeoricosMap = { ...s.puntosTeoricosMap, [id]: puntos }
+      const tIniciosMap = { ...s.tIniciosMap, [id]: ancla.timestampInicio }
+      const tempIniciosMap = { ...s.tempIniciosMap, [id]: ancla.tempInicio }
       set({
+        programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap,
         programaActivo: ancla.programa,
+        puntosTeoricos: puntos,
         tInicio: ancla.timestampInicio,
         tempInicio: ancla.tempInicio,
-        puntosTeoricos: puntos,
       })
       try {
         const rawCurva = localStorage.getItem(STORAGE_KEYS.CURVA(id))
         if (rawCurva) {
           const historial = JSON.parse(rawCurva) as { t: number; temp: number }[]
-          set({ historialTemp: historial })
+          const historialTemps = { ...get().historialTemps, [id]: historial }
+          set({ historialTemps, historialTemp: historial })
         }
       } catch (e) {
         console.error('[loadCurvaFromStorage curva real]', e)
@@ -166,36 +351,132 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   },
 
   loadFromStorage: () => {
+    // Intentar cargar lista multi-horno primero
+    const listaRaw = localStorage.getItem(STORAGE_KEYS.HORNOS_LISTA)
+    if (listaRaw) {
+      try {
+        const hornos = JSON.parse(listaRaw) as Horno[]
+        if (hornos.length === 0) return
+
+        const passwords: Record<string, string> = {}
+        for (const h of hornos) {
+          const p = localStorage.getItem(STORAGE_KEYS.PASS(h.hornoId))
+          if (p) passwords[h.hornoId] = p
+          const ip = localStorage.getItem(STORAGE_KEYS.IP_CACHE(h.hornoId))
+          if (ip) h.ip = ip
+          const pot = localStorage.getItem(STORAGE_KEYS.POTENCIA(h.hornoId))
+          if (pot) h.potencia = Number(pot)
+        }
+
+        const programasCache: Record<string, Programa[]> = {}
+        const programasActivos: Record<string, Programa | null> = {}
+        const tIniciosMap: Record<string, number | null> = {}
+        const tempIniciosMap: Record<string, number | null> = {}
+        const historialTemps: Record<string, { t: number; temp: number }[]> = {}
+        const puntosTeoricosMap: Record<string, PuntoCurva[]> = {}
+
+        for (const h of hornos) {
+          const id = h.hornoId
+
+          const progRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
+          if (progRaw) {
+            try { programasCache[id] = JSON.parse(progRaw) as Programa[] } catch {}
+          }
+
+          const curvaRaw = localStorage.getItem(STORAGE_KEYS.CURVA(id))
+          if (curvaRaw) {
+            try { historialTemps[id] = JSON.parse(curvaRaw) as { t: number; temp: number }[] } catch {}
+          }
+
+          const inicioRaw = localStorage.getItem(STORAGE_KEYS.INICIO(id))
+          if (inicioRaw) {
+            try {
+              const ancla = JSON.parse(inicioRaw) as AnclaStorage
+              programasActivos[id] = ancla.programa
+              tIniciosMap[id] = ancla.timestampInicio
+              tempIniciosMap[id] = ancla.tempInicio
+              puntosTeoricosMap[id] = calcularCurvaTeorica(
+                ancla.programa.pasos,
+                ancla.tempInicio,
+                ancla.timestampInicio
+              )
+            } catch {}
+          }
+        }
+
+        // Horno activo: preferir el que estaba activo antes (HORNO_ID legacy)
+        const lastId = localStorage.getItem(STORAGE_KEYS.HORNO_ID)
+        const hornoActivoId = (lastId && hornos.some(h => h.hornoId === lastId))
+          ? lastId
+          : hornos[0].hornoId
+
+        const maps: MapsPartial = {
+          hornos, hornoActivoId, passwords, estados: {},
+          historialTemps, programasCache, programasActivos,
+          puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+        }
+        set({ ...maps, ...derivar(maps) })
+        return
+      } catch (e) {
+        console.error('[loadFromStorage lista]', e)
+      }
+    }
+
+    // Migración desde storage single-horno legacy
     const id = localStorage.getItem(STORAGE_KEYS.HORNO_ID)
     if (!id) return
     const pass = localStorage.getItem(STORAGE_KEYS.PASS(id))
     if (!pass) return
-    const ip = localStorage.getItem(STORAGE_KEYS.IP_CACHE(id))
+    const ip = localStorage.getItem(STORAGE_KEYS.IP_CACHE(id)) ?? undefined
     const pot = localStorage.getItem(STORAGE_KEYS.POTENCIA(id))
 
-    const programasRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
-    const programas: Programa[] = programasRaw ? (JSON.parse(programasRaw) as Programa[]) : []
+    const horno: Horno = {
+      hornoId: id,
+      nombre: `Horno ${id.slice(-6)}`,
+      ip,
+      potencia: pot ? Number(pot) : undefined,
+    }
+    const hornos = [horno]
+    persistirLista(hornos)
 
-    let programaActivo: Programa | null = null
-    let tInicio: number | null = null
-    let tempInicio: number | null = null
+    const passwords = { [id]: pass }
+    const programasCache: Record<string, Programa[]> = {}
+    const programasActivos: Record<string, Programa | null> = {}
+    const tIniciosMap: Record<string, number | null> = {}
+    const tempIniciosMap: Record<string, number | null> = {}
+    const historialTemps: Record<string, { t: number; temp: number }[]> = {}
+    const puntosTeoricosMap: Record<string, PuntoCurva[]> = {}
+
+    const progRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
+    if (progRaw) {
+      try { programasCache[id] = JSON.parse(progRaw) as Programa[] } catch {}
+    }
+
+    const curvaRaw = localStorage.getItem(STORAGE_KEYS.CURVA(id))
+    if (curvaRaw) {
+      try { historialTemps[id] = JSON.parse(curvaRaw) as { t: number; temp: number }[] } catch {}
+    }
+
     const inicioRaw = localStorage.getItem(STORAGE_KEYS.INICIO(id))
     if (inicioRaw) {
       try {
         const ancla = JSON.parse(inicioRaw) as AnclaStorage
-        programaActivo = ancla.programa
-        tInicio = ancla.timestampInicio
-        tempInicio = ancla.tempInicio
+        programasActivos[id] = ancla.programa
+        tIniciosMap[id] = ancla.timestampInicio
+        tempIniciosMap[id] = ancla.tempInicio
+        puntosTeoricosMap[id] = calcularCurvaTeorica(
+          ancla.programa.pasos,
+          ancla.tempInicio,
+          ancla.timestampInicio
+        )
       } catch {}
     }
 
-    set({
-      hornoActivo: { hornoId: id, nombre: `Horno ${id.slice(-6)}`, ip: ip ?? undefined, potencia: pot ? Number(pot) : undefined },
-      password: pass,
-      programas,
-      programaActivo,
-      tInicio,
-      tempInicio,
-    })
+    const maps: MapsPartial = {
+      hornos, hornoActivoId: id, passwords, estados: {},
+      historialTemps, programasCache, programasActivos,
+      puntosTeoricosMap, tIniciosMap, tempIniciosMap,
+    }
+    set({ ...maps, ...derivar(maps) })
   },
 }))

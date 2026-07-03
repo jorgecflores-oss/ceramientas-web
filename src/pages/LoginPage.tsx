@@ -4,7 +4,9 @@ import { getInfo, cacheIP, probeAP } from '../services/hornoService'
 import { AP_IP } from '../utils/constants'
 
 export function LoginPage() {
-  const setHorno = useHornoStore((s) => s.setHorno)
+  const hornos = useHornoStore((s) => s.hornos)
+  const agregarHorno = useHornoStore((s) => s.agregarHorno)
+  const setHornoActivo = useHornoStore((s) => s.setHornoActivo)
   const [ip, setIp] = useState('')
   const [pass, setPass] = useState('')
   const [error, setError] = useState('')
@@ -43,10 +45,14 @@ export function LoginPage() {
         return
       }
       cacheIP(info.hornoId, ip)
-      setHorno(
-        { hornoId: info.hornoId, nombre: info.nombre, ip, version: info.version },
-        pass
-      )
+      const nuevoHorno = {
+        hornoId: info.hornoId,
+        nombre: info.nombre,
+        ip,
+        version: info.version,
+      }
+      agregarHorno(nuevoHorno, pass)
+      setHornoActivo(info.hornoId)
     } catch (e: any) {
       setError(`No responde: ${e.message}`)
     } finally {
@@ -59,9 +65,31 @@ export function LoginPage() {
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
-          <h1 className="text-2xl font-bold tracking-widest mt-1">CONECTAR</h1>
+          <h1 className="text-2xl font-bold tracking-widest mt-1">
+            {hornos.length > 0 ? 'AGREGAR HORNO' : 'CONECTAR'}
+          </h1>
         </div>
 
+        {hornos.length > 0 && (
+          <div className="space-y-2 mb-6">
+            <p className="text-xs text-neutral-500 uppercase tracking-wider">Hornos guardados</p>
+            {hornos.map(h => (
+              <button
+                key={h.hornoId}
+                onClick={() => setHornoActivo(h.hornoId)}
+                className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-800 hover:border-orange-500 rounded-lg transition"
+              >
+                <div className="text-left">
+                  <p className="text-white font-semibold">{h.nombre}</p>
+                  <p className="text-xs text-neutral-500">{h.hornoId.slice(-6)}</p>
+                </div>
+                <span className="text-orange-500">→</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className={hornos.length > 0 ? 'border-t border-neutral-800 pt-4 mt-4' : ''}>
         <div className="space-y-3">
           <input
             type="text"
@@ -96,6 +124,7 @@ export function LoginPage() {
           >
             Detectar AP local
           </button>
+        </div>
         </div>
 
         <p className="text-xs text-neutral-500 text-center">

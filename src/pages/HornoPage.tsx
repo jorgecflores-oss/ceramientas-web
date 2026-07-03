@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, publicarComando } from '../services/mqttService'
-import { postComando, fetchProgramasOnce, postConfig, getConfig } from '../services/hornoService'
+import { postComando, fetchProgramasOnce, postConfig, getConfig, getEstado } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
@@ -64,6 +64,28 @@ export function HornoPage() {
         )
       })
       .catch(e => console.error('[getConfig]', e))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [horno?.hornoId, horno?.ip, pass])
+
+  useEffect(() => {
+    if (!horno?.ip || !pass) return
+    getEstado(horno.ip, pass)
+      .then((data: any) => {
+        setEstado({
+          temperatura: data.t ?? data.temperatura ?? 0,
+          tempObj: data.to ?? data.tempObj ?? 0,
+          etapa: data.ea ?? data.etapa ?? 1,
+          etapaTotal: data.et ?? data.etapaTotal ?? 1,
+          horas: data.h ?? data.horas ?? 0,
+          minutos: data.m ?? data.minutos ?? 0,
+          rele: data.r ?? data.rele ?? false,
+          rampaLenta: data.rl ?? data.rampaLenta ?? false,
+          rampaRapida: data.rr ?? data.rampaRapida ?? false,
+          corteLuz: data.cl ?? data.corteLuz ?? false,
+          estado: data.e ?? data.estado ?? 'idle',
+        })
+      })
+      .catch(e => console.error('[bootstrap estado]', e))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [horno?.hornoId, horno?.ip, pass])
 
