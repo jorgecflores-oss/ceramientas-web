@@ -185,6 +185,11 @@ export function HornoPage() {
     estadoTxt === 'rampa' ||
     estadoTxt === 'meseta'
 
+  const finalizadoOK =
+    estadoTxt === 'finalizado' ||
+    estadoTxt === 'alarma_exceso' ||
+    estadoTxt === 'alarma_critica'
+
   return (
     <div className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
       <div className="max-w-md mx-auto">
@@ -205,9 +210,9 @@ export function HornoPage() {
             color={mqttConectado ? 'bg-green-500' : 'bg-neutral-600'}
           />
           <LedEstado
-            activo={enProceso}
-            label={enProceso ? 'Horneando' : 'Detenido'}
-            color={enProceso ? 'bg-orange-500' : 'bg-neutral-600'}
+            activo={enProceso || finalizadoOK}
+            label={enProceso ? 'Horneando' : finalizadoOK ? 'Finalizado' : 'Detenido'}
+            color={enProceso ? 'bg-orange-500' : finalizadoOK ? 'bg-green-500' : 'bg-neutral-600'}
           />
           <LedEstado
             activo={estado?.rele ?? false}
