@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, publicarComando } from '../services/mqttService'
-import { postComando, fetchProgramasOnce, postConfig, getConfig, getEstado } from '../services/hornoService'
+import { postComando, fetchProgramasOnce, getConfig, getEstado } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
@@ -25,7 +25,6 @@ export function HornoPage() {
   const mqttConectado = useHornoStore((s) => s.mqttConectado)
   const setEstado = useHornoStore((s) => s.setEstado)
   const pushTemp = useHornoStore((s) => s.pushTemp)
-  const clearHorno = useHornoStore((s) => s.clearHorno)
   const historialTemp = useHornoStore((s) => s.historialTemp)
   const puntosTeoricos = useHornoStore((s) => s.puntosTeoricos)
   const setProgramas = useHornoStore((s) => s.setProgramas)
@@ -37,12 +36,10 @@ export function HornoPage() {
   const tInicio = useHornoStore((s) => s.tInicio)
   const ultimoYMax = useHornoStore((s) => s.ultimoYMax)
   const snapshot = useHornoStore((s) => s.snapshot)
+  const programaActivo = useHornoStore((s) => s.programaActivo)
 
   const estadoPrevioRef = useRef<string | null>(null)
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
-  const [editandoNombre, setEditandoNombre] = useState(false)
-  const [nombreInput, setNombreInput] = useState('')
-  const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     if (!horno) return
@@ -178,20 +175,6 @@ export function HornoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado?.estado])
 
-  async function guardarNombre() {
-    if (!horno?.ip || !pass || !nombreInput.trim()) return
-    setGuardando(true)
-    try {
-      await postConfig(horno.ip, pass, { nombre: nombreInput.trim() })
-      setHorno({ ...horno, nombre: nombreInput.trim() }, pass)
-      setEditandoNombre(false)
-    } catch (e) {
-      alert('Error guardando nombre')
-    } finally {
-      setGuardando(false)
-    }
-  }
-
   if (!horno) return null
 
   const temp = estado?.temperatura ?? 0
@@ -208,90 +191,72 @@ export function HornoPage() {
       <SelectorHorno />
       <header className="mb-6">
         <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
-        {editandoNombre ? (
-          <div className="flex gap-2 items-center mt-1">
-            <input
-              type="text"
-              value={nombreInput}
-              onChange={e => setNombreInput(e.target.value)}
-              maxLength={19}
-              autoFocus
-              className="flex-1 px-2 py-1 bg-neutral-900 border border-orange-500 rounded text-2xl font-bold text-white"
-            />
-            <button
-              onClick={guardarNombre}
-              disabled={guardando}
-              className="px-3 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-sm font-semibold"
-            >
-              {guardando ? '...' : 'OK'}
-            </button>
-            <button
-              onClick={() => setEditandoNombre(false)}
-              disabled={guardando}
-              className="px-2 py-2 text-neutral-400 hover:text-white text-sm"
-            >
-              ✕
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => {
-              setNombreInput(horno.nombre)
-              setEditandoNombre(true)
-            }}
-            className="text-2xl font-bold text-white mt-1 hover:text-orange-400 transition text-left"
-          >
-            {horno.nombre} ✎
-          </button>
-        )}
+        <h1 className="text-2xl font-bold text-white mt-1">{horno.nombre}</h1>
         {horno.potencia && (
           <p className="text-sm text-neutral-400 mt-1">{horno.potencia} W</p>
         )}
       </header>
 
-      <div className="flex justify-around items-center mb-6 px-2">
-        <LedEstado
-          activo={mqttConectado}
-          label={mqttConectado ? 'Online' : 'Offline'}
-          color={mqttConectado ? 'bg-green-500' : 'bg-neutral-600'}
-        />
-        <LedEstado
-          activo={enProceso}
-          label={enProceso ? 'Horneando' : 'Detenido'}
-          color={enProceso ? 'bg-orange-500' : 'bg-neutral-600'}
-        />
-        <LedEstado
-          activo={estado?.rele ?? false}
-          label={estado?.rele ? 'Resist. ON' : 'Resist. OFF'}
-          color={estado?.rele ? 'bg-orange-500' : 'bg-neutral-600'}
-        />
+      <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-3">
+        <div className="flex justify-around items-center">
+          <LedEstado
+            activo={mqttConectado}
+            label={mqttConectado ? 'Online' : 'Offline'}
+            color={mqttConectado ? 'bg-green-500' : 'bg-neutral-600'}
+          />
+          <LedEstado
+            activo={enProceso}
+            label={enProceso ? 'Horneando' : 'Detenido'}
+            color={enProceso ? 'bg-orange-500' : 'bg-neutral-600'}
+          />
+          <LedEstado
+            activo={estado?.rele ?? false}
+            label={estado?.rele ? 'Resist. ON' : 'Resist. OFF'}
+            color={estado?.rele ? 'bg-orange-500' : 'bg-neutral-600'}
+          />
+        </div>
       </div>
 
-      <div className="bg-neutral-900 rounded-2xl p-8 mb-6 text-center border border-neutral-800">
-        <p className="text-xs text-neutral-400 uppercase tracking-wider mb-2">Temperatura</p>
-        <p className="text-6xl font-bold">{temp}<span className="text-2xl text-neutral-400">°C</span></p>
-        {tempObj > 0 && (
-          <p className="text-sm text-neutral-400 mt-2">Objetivo: {tempObj}°C</p>
+      <div className="bg-neutral-900 rounded-2xl mb-6 border border-neutral-800 overflow-hidden">
+        <div className="p-6 text-center">
+          <p className="text-6xl font-bold">{temp}<span className="text-2xl text-neutral-400 align-top">°C</span></p>
+          {tempObj > 0 && (
+            <p className="text-sm text-neutral-400 mt-2">objetivo: {tempObj}°C</p>
+          )}
+        </div>
+
+        {enProceso && (
+          <>
+            <div className="px-6 pb-2">
+              <div className="w-full bg-neutral-800 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-orange-500 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (temp / (tempObj || 100)) * 100)}%` }}
+                />
+              </div>
+              <p className="text-center text-xs text-neutral-400 mt-2">
+                Etapa {estado?.etapa ?? 0} de {estado?.etapaTotal ?? 0}
+                {' — '}
+                {estadoTxt === 'meseta' ? `Meseta a ${estado?.tempObj ?? 0}°C` : `Rampa hasta ${estado?.tempObj ?? 0}°C`}
+              </p>
+            </div>
+
+            <div className="border-t border-neutral-800 grid grid-cols-3 divide-x divide-neutral-800">
+              <div className="py-3 text-center">
+                <p className="text-xs text-neutral-500 uppercase tracking-wider">Programa</p>
+                <p className="text-sm font-semibold mt-1 truncate px-2">{programaActivo?.nombre ?? '—'}</p>
+              </div>
+              <div className="py-3 text-center">
+                <p className="text-xs text-neutral-500 uppercase tracking-wider">Tiempo</p>
+                <p className="text-sm font-semibold mt-1">{estado?.horas ?? 0}h {estado?.minutos ?? 0}min</p>
+              </div>
+              <div className="py-3 text-center">
+                <p className="text-xs text-neutral-500 uppercase tracking-wider">Temp final</p>
+                <p className="text-sm font-semibold mt-1 text-orange-400">{programaActivo?.tempFinal ?? '—'}°C</p>
+              </div>
+            </div>
+          </>
         )}
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 mb-6">
-        <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800">
-          <p className="text-xs text-neutral-400 uppercase">Etapa</p>
-          <p className="text-lg font-semibold mt-1">
-            {estado?.etapa ?? 0}/{estado?.etapaTotal ?? 0}
-          </p>
-        </div>
-        <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800">
-          <p className="text-xs text-neutral-400 uppercase">Estado</p>
-          <p className="text-lg font-semibold mt-1">{estadoTxt}</p>
-        </div>
-        <div className="bg-neutral-900 rounded-lg p-3 border border-neutral-800">
-          <p className="text-xs text-neutral-400 uppercase">Tiempo</p>
-          <p className="text-lg font-semibold mt-1">
-            {estado?.horas ?? 0}h {estado?.minutos ?? 0}m
-          </p>
-        </div>
       </div>
 
       <div className="bg-neutral-900 rounded-2xl p-4 border border-neutral-800 mb-6">
@@ -328,12 +293,6 @@ export function HornoPage() {
         </div>
       )}
 
-      <button
-        onClick={clearHorno}
-        className="w-full py-2 text-sm text-neutral-500 hover:text-neutral-300 transition"
-      >
-        Desvincular horno
-      </button>
       </div>
     </div>
   )

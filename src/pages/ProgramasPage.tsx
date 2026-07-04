@@ -68,8 +68,10 @@ export function ProgramasPage() {
         <header className="mb-6 flex justify-between items-start">
           <div>
             <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
-            <h1 className="text-2xl font-bold tracking-widest mt-1">PROGRAMAS</h1>
-            <p className="text-sm text-neutral-400 mt-1">{horno?.nombre}</p>
+            <h1 className="text-2xl font-bold text-white mt-1">{horno?.nombre ?? '—'}</h1>
+            {horno?.potencia && (
+              <p className="text-sm text-neutral-400 mt-1">{horno.potencia} W</p>
+            )}
           </div>
           <button
             disabled

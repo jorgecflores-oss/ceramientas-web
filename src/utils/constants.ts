@@ -17,4 +17,6 @@ export const STORAGE_KEYS = {
   POTENCIA: (id: string) => `@ceramientas_potencia_${id}`,
   ULTIMO_YMAX: (id: string) => `@ceramientas_ymax_${id}`,
   SNAPSHOT: (id: string) => `@ceramientas_snapshot_${id}`,
+  HISTORIAL_CACHE: (id: string) => `@ceramientas_historial_${id}`,
+  HISTORIAL_BORRADOS: (id: string) => `@ceramientas_historial_borrados_${id}`,
 } as const

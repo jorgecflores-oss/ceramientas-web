@@ -48,6 +48,15 @@ export async function getHistorial(ip: string, pass: string) {
   return res.json()
 }
 
+export async function deleteHistorial(ip: string, pass: string) {
+  const res = await fetchTimeout(`http://${ip}/historial`, {
+    method: 'DELETE',
+    headers: { 'X-Auth': pass },
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
 export async function getCurva(ip: string, pass: string) {
   const res = await fetchTimeout(`http://${ip}/curva`, {
     headers: { 'X-Auth': pass },

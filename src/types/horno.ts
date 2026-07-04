@@ -48,3 +48,26 @@ export interface InfoHorno {
   version: string
   mac: string
 }
+
+export interface Horneada {
+  id: string
+  programa: string
+  tempMax: number
+  kWhConsumidos: number
+  costo: number
+  duracionHoras: number
+  duracionMinutos: number
+  timestamp: number
+  motivo: string
+}
+
+export interface HorneadaFirmware {
+  timestamp: number
+  nombre: string
+  temp_max: number
+  kwh: number
+  costo: number
+  duracion_min: number
+  estado?: number
+  motivo?: string
+}
