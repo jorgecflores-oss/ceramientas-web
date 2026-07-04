@@ -1,4 +1,16 @@
-export type EstadoHorno = 'idle' | 'ejecutando' | 'pausado' | 'finalizado' | 'error'
+export type EstadoHorno =
+  | 'idle'
+  | 'ejecutando'
+  | 'rampa'
+  | 'meseta'
+  | 'pausado'
+  | 'finalizado'
+  | 'alarma_exceso'
+  | 'alarma_critica'
+  | 'detenido_manualmente'
+  | 'emergencia'
+  | 'error'
+  | 'sin datos'
 
 export type Page = 'horno' | 'programas' | 'historial' | 'config'
 
