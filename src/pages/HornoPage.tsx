@@ -267,7 +267,6 @@ export function HornoPage() {
       <div className="bg-neutral-900 rounded-2xl p-4 border border-neutral-800 mb-6">
         <CurvaGrafico
           puntos={historialTemp}
-          tempObj={estado?.tempObj}
           puntosTeoricos={puntosTeoricos}
           xAhora={xAhora}
           ultimoYMax={ultimoYMax}

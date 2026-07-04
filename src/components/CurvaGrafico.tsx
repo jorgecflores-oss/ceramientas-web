@@ -54,14 +54,13 @@ function CartelFijo({ xAhora, xMax, tempReal, tempTeorica }: {
 
 interface Props {
   puntos: PuntoCurva[]
-  tempObj?: number
   puntosTeoricos?: PuntoCurva[]
   xAhora?: number
   ultimoYMax?: number | null
   snapshot?: Snapshot | null
 }
 
-export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora, ultimoYMax, snapshot }: Props) {
+export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snapshot }: Props) {
   const [cartelVisible, setCartelVisible] = useState(false)
 
   useEffect(() => {
@@ -210,7 +209,6 @@ export function CurvaGrafico({ puntos, tempObj = 0, puntosTeoricos, xAhora, ulti
               x={xAhoraEf}
               stroke="#4CAF50"
               strokeWidth={2}
-              isFront
             />
           )}
         </LineChart>
