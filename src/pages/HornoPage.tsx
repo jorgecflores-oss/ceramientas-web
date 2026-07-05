@@ -23,6 +23,9 @@ export function HornoPage() {
   const pass = useHornoStore((s) => s.password)
   const estado = useHornoStore((s) => s.estado)
   const mqttConectado = useHornoStore((s) => s.mqttConectado)
+  const hornoId = useHornoStore((s) => s.hornoActivoId)
+  const ultimoVia = useHornoStore((s) => hornoId ? s.ultimoVia[hornoId] ?? null : null)
+  const ultimoAt = useHornoStore((s) => hornoId ? s.ultimoRespuestaAt[hornoId] ?? 0 : 0)
   const setEstado = useHornoStore((s) => s.setEstado)
   const pushTemp = useHornoStore((s) => s.pushTemp)
   const historialTemp = useHornoStore((s) => s.historialTemp)
@@ -40,6 +43,7 @@ export function HornoPage() {
 
   const estadoPrevioRef = useRef<string | null>(null)
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
+  const [, setTick] = useState(0)
 
   useEffect(() => {
     if (!horno) return
@@ -103,6 +107,12 @@ export function HornoPage() {
     const id = setInterval(actualizar, 5000)
     return () => clearInterval(id)
   }, [tInicio])
+
+  useEffect(() => {
+    if (ultimoVia !== 'http') return
+    const id = setInterval(() => setTick(n => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [ultimoVia])
 
   async function parar() {
     if (!horno) return
@@ -190,6 +200,13 @@ export function HornoPage() {
     estadoTxt === 'alarma_exceso' ||
     estadoTxt === 'alarma_critica'
 
+  const VENTANA_LOCAL = 30_000
+  const lanReciente = ultimoVia === 'http' && (Date.now() - ultimoAt) < VENTANA_LOCAL
+  const estadoConexion: 'online' | 'local' | 'offline' =
+    mqttConectado ? 'online'
+    : lanReciente ? 'local'
+    : 'offline'
+
   return (
     <div className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
       <div className="max-w-md mx-auto">
@@ -205,9 +222,9 @@ export function HornoPage() {
       <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-3">
         <div className="flex justify-around items-center">
           <LedEstado
-            activo={mqttConectado}
-            label={mqttConectado ? 'Online' : 'Offline'}
-            color={mqttConectado ? 'bg-green-500' : 'bg-neutral-600'}
+            activo={estadoConexion !== 'offline'}
+            label={estadoConexion === 'online' ? 'Online' : estadoConexion === 'local' ? 'Local' : 'Offline'}
+            color={estadoConexion === 'online' ? 'bg-green-500' : estadoConexion === 'local' ? 'bg-blue-400' : 'bg-neutral-600'}
           />
           <LedEstado
             activo={enProceso || finalizadoOK}

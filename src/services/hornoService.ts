@@ -1,6 +1,7 @@
 import { HTTP_TIMEOUT, AP_IP, STORAGE_KEYS } from '../utils/constants'
 import type { InfoHorno, Programa, ConfigHorno } from '../types/horno'
 import { mqttRequest } from './mqttService'
+import { useHornoStore } from '../store/hornoStore'
 
 async function fetchTimeout(url: string, opts: RequestInit = {}, timeout = HTTP_TIMEOUT) {
   const ctrl = new AbortController()
@@ -25,11 +26,15 @@ export async function scanWifi(hornoId: string) {
 }
 
 export async function getEstado(hornoId: string) {
-  return (await hornoRequest(hornoId, 'estado', 'GET')).data
+  const resp = await hornoRequest(hornoId, 'estado', 'GET')
+  useHornoStore.getState().registrarRespuesta(hornoId, resp.via)
+  return resp.data
 }
 
 export async function getProgramas(hornoId: string): Promise<Programa[]> {
-  return (await hornoRequest(hornoId, 'programas', 'GET')).data as Programa[]
+  const resp = await hornoRequest(hornoId, 'programas', 'GET')
+  useHornoStore.getState().registrarRespuesta(hornoId, resp.via)
+  return resp.data as Programa[]
 }
 
 export async function getHistorial(hornoId: string) {
@@ -45,7 +50,9 @@ export async function getCurva(hornoId: string) {
 }
 
 export async function getConfig(hornoId: string): Promise<ConfigHorno> {
-  return (await hornoRequest(hornoId, 'config', 'GET')).data as ConfigHorno
+  const resp = await hornoRequest(hornoId, 'config', 'GET')
+  useHornoStore.getState().registrarRespuesta(hornoId, resp.via)
+  return resp.data as ConfigHorno
 }
 
 export async function postConfig(
@@ -108,7 +115,7 @@ export async function hornoRequest(
   path: string,
   method: 'GET' | 'POST' | 'DELETE',
   body?: string
-): Promise<{ status: number; data: unknown }> {
+): Promise<{ status: number; data: unknown; via: 'http' | 'mqtt' }> {
   const ip = await resolverIP(hornoId)
   const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
 
@@ -125,13 +132,37 @@ export async function hornoRequest(
       if (body && method !== 'GET') opts.body = body
       const resp = await fetch(`http://${ip}/${path}`, opts)
       const data = await resp.json()
-      return { status: resp.status, data }
+      return { status: resp.status, data, via: 'http' }
     } catch {
       // HTTP falló, cae a MQTT
     }
   }
 
-  return mqttRequest(hornoId, path, method, body)
+  const resultado = await mqttRequest(hornoId, path, method, body)
+  return { ...resultado, via: 'mqtt' }
+}
+
+export async function verificarHornoMQTT(
+  hornoId: string
+): Promise<{ ok: boolean; nombre?: string; version?: string }> {
+  const passDerivada = hornoId.slice(-6).toLowerCase()
+  const keyPass = STORAGE_KEYS.PASS(hornoId)
+  const passPrevia = localStorage.getItem(keyPass)
+  localStorage.setItem(keyPass, passDerivada)
+  try {
+    const resp = await mqttRequest(hornoId, 'info', 'GET', undefined, 6000)
+    if (resp.status === 200) {
+      const data = resp.data as { nombre?: string; version?: string }
+      return { ok: true, nombre: data.nombre, version: data.version }
+    }
+    if (passPrevia) localStorage.setItem(keyPass, passPrevia)
+    else localStorage.removeItem(keyPass)
+    return { ok: false }
+  } catch {
+    if (passPrevia) localStorage.setItem(keyPass, passPrevia)
+    else localStorage.removeItem(keyPass)
+    return { ok: false }
+  }
 }
 
 if (typeof window !== 'undefined') {

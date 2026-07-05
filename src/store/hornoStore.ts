@@ -29,6 +29,8 @@ interface HornoState {
   tIniciosMap: Record<string, number | null>
   tempIniciosMap: Record<string, number | null>
   mqttConectado: boolean
+  ultimoVia: Record<string, 'http' | 'mqtt' | null>
+  ultimoRespuestaAt: Record<string, number>
 
   // Vista single-horno derivada (backward compat)
   hornoActivo: Horno | null
@@ -55,6 +57,7 @@ interface HornoState {
   clearHorno: () => void
   setEstado: (e: EstadoMQTT) => void
   setMqttConectado: (c: boolean) => void
+  registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
   pushTemp: (temp: number) => void
   resetHistorial: () => void
   setProgramas: (p: Programa[]) => void
@@ -130,6 +133,8 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   tIniciosMap: {},
   tempIniciosMap: {},
   mqttConectado: false,
+  ultimoVia: {},
+  ultimoRespuestaAt: {},
 
   // Vista derivada — se calculará al cargar desde storage; inicial vacía
   hornoActivo: null,
@@ -271,6 +276,11 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   },
 
   setMqttConectado: (c) => set({ mqttConectado: c }),
+
+  registrarRespuesta: (hornoId, via) => set(state => ({
+    ultimoVia: { ...state.ultimoVia, [hornoId]: via },
+    ultimoRespuestaAt: { ...state.ultimoRespuestaAt, [hornoId]: Date.now() },
+  })),
 
   pushTemp: (temp) => {
     const id = get().hornoActivoId

@@ -13,6 +13,7 @@ const pendientes = new Map<string, Pendiente>()
 let client: MqttClient | null = null
 let conectado = false
 const subs = new Map<string, (data: EstadoMQTT) => void>()
+let descubrimientoHandler: ((topic: string) => void) | null = null
 
 export function iniciarMQTT() {
   if (client) return
@@ -42,8 +43,12 @@ export function iniciarMQTT() {
   })
 
   client.on('message', (topic, payload) => {
+    if (descubrimientoHandler) descubrimientoHandler(topic)
     if (topic.endsWith('/res')) {
+      if (payload.length === 0) return
       try {
+        console.log('[MQTT] /res payload raw:', payload.toString())
+        console.log('[MQTT] /res payload length:', payload.length)
         const msg = JSON.parse(payload.toString())
         const pend = pendientes.get(msg.reqId)
         if (!pend) return
@@ -93,14 +98,41 @@ export function detenerMQTT() {
   conectado = false
 }
 
+export function descubrirHornosMQTT(timeoutMs: number = 15000): Promise<string[]> {
+  return new Promise((resolve) => {
+    if (!estaConectado()) {
+      resolve([])
+      return
+    }
+    const encontrados = new Set<string>()
+    descubrimientoHandler = (topic: string) => {
+      console.log('[DESC] topic recibido:', topic)
+      const match = topic.match(/^ceramientas\/([^/]+)\/estado$/)
+      if (match) encontrados.add(match[1])
+    }
+    client!.subscribe('ceramientas/+/estado', { qos: 0 })
+    console.log('[DESC] iniciando suscripcion ceramientas/+/estado')
+    setTimeout(() => {
+      descubrimientoHandler = null
+      client!.unsubscribe('ceramientas/+/estado')
+      console.log('[DESC] terminado, encontrados:', Array.from(encontrados))
+      resolve(Array.from(encontrados))
+    }, timeoutMs)
+  })
+}
+
 export function mqttRequest(
   hornoId: string,
   path: string,
   method: 'GET' | 'POST' | 'DELETE',
   body?: string,
-  timeoutMs: number = 10000
+  timeoutMs: number = 20000
 ): Promise<{ status: number; data: unknown }> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    const start = Date.now()
+    while (!estaConectado() && Date.now() - start < 5000) {
+      await new Promise(r => setTimeout(r, 200))
+    }
     if (!estaConectado()) {
       reject(new Error('MQTT no conectado'))
       return
