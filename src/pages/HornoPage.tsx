@@ -56,8 +56,8 @@ export function HornoPage() {
   }, [loadCurvaFromStorage])
 
   useEffect(() => {
-    if (!horno?.ip || !pass) return
-    getConfig(horno.ip, pass)
+    if (!horno?.hornoId || !pass) return
+    getConfig(horno.hornoId)
       .then(cfg => {
         setHorno(
           { ...horno, potencia: cfg.potencia, nombre: cfg.nombre ?? horno.nombre },
@@ -66,11 +66,11 @@ export function HornoPage() {
       })
       .catch(e => console.error('[getConfig]', e))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [horno?.hornoId, horno?.ip, pass])
+  }, [horno?.hornoId, pass])
 
   useEffect(() => {
-    if (!horno?.ip || !pass) return
-    getEstado(horno.ip, pass)
+    if (!horno?.hornoId) return
+    getEstado(horno.hornoId)
       .then((data: any) => {
         setEstado({
           temperatura: data.t ?? data.temperatura ?? 0,
@@ -88,7 +88,7 @@ export function HornoPage() {
       })
       .catch(e => console.error('[bootstrap estado]', e))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [horno?.hornoId, horno?.ip, pass])
+  }, [horno?.hornoId])
 
   useEffect(() => {
     if (!tInicio) {
@@ -105,12 +105,12 @@ export function HornoPage() {
   }, [tInicio])
 
   async function parar() {
-    if (!horno || !pass) return
+    if (!horno) return
     if (!confirm('¿Parar horneado?')) return
     const mqttOk = publicarComando(horno.hornoId, 'detener')
-    if (!mqttOk && horno.ip) {
+    if (!mqttOk) {
       try {
-        await postComando(horno.ip, pass, 'detener')
+        await postComando(horno.hornoId, 'detener')
       } catch (e) {
         alert('Error enviando comando')
       }
@@ -118,9 +118,9 @@ export function HornoPage() {
   }
 
   async function calcularYGuardarCurva(esNuevo: boolean) {
-    if (!horno?.ip || !pass || !estado) return
+    if (!horno?.hornoId || !estado) return
     try {
-      const progs = await fetchProgramasOnce(horno.ip, pass, horno.hornoId)
+      const progs = await fetchProgramasOnce(horno.hornoId)
       setProgramas(progs)
       const match = matchPrograma(
         progs,

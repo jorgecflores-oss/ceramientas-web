@@ -21,8 +21,8 @@ export function ConfigPage() {
   const [guardandoNombre, setGuardandoNombre] = useState(false)
 
   useEffect(() => {
-    if (!horno?.ip || !pass) return
-    getConfig(horno.ip, pass)
+    if (!horno?.hornoId) return
+    getConfig(horno.hornoId)
       .then(cfg => {
         setPotencia(String(cfg.potencia ?? 6000))
         setFactura(String(cfg.factura ?? 71000))
@@ -30,7 +30,7 @@ export function ConfigPage() {
         setVersionFw(cfg.versionFirmware ?? null)
       })
       .catch(e => console.error('[getConfig]', e))
-  }, [horno?.hornoId, horno?.ip, pass])
+  }, [horno?.hornoId])
 
   async function guardarParams() {
     const potV = Number(potencia)
@@ -59,8 +59,8 @@ export function ConfigPage() {
       if (!horno) return
       const cmd = `setconfig:potencia=${potR},factura=${facR},consumo=${conR}`
       const ok = publicarComando(horno.hornoId, cmd)
-      if (!ok && horno.ip && pass) {
-        await postComando(horno.ip, pass, cmd)
+      if (!ok) {
+        await postComando(horno.hornoId, cmd)
       }
       alert('Guardado')
     } catch {
@@ -71,10 +71,10 @@ export function ConfigPage() {
   }
 
   async function guardarNombre() {
-    if (!horno?.ip || !pass || !nombreInput.trim()) return
+    if (!horno?.hornoId || !pass || !nombreInput.trim()) return
     setGuardandoNombre(true)
     try {
-      await postConfig(horno.ip, pass, { nombre: nombreInput.trim() })
+      await postConfig(horno.hornoId, { nombre: nombreInput.trim() })
       setHorno({ ...horno, nombre: nombreInput.trim() }, pass)
       setEditandoNombre(false)
     } catch {

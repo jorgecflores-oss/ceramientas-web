@@ -1,6 +1,14 @@
 import mqtt, { type MqttClient } from 'mqtt'
-import { MQTT_BROKER, MQTT_USER, MQTT_PASS } from '../utils/constants'
+import { MQTT_BROKER, MQTT_USER, MQTT_PASS, STORAGE_KEYS } from '../utils/constants'
 import type { EstadoMQTT } from '../types/horno'
+
+type Pendiente = {
+  resolve: (v: { status: number; data: unknown }) => void
+  reject: (e: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+const pendientes = new Map<string, Pendiente>()
 
 let client: MqttClient | null = null
 let conectado = false
@@ -21,6 +29,7 @@ export function iniciarMQTT() {
     conectado = true
     console.log('[MQTT] conectado')
     subs.forEach((_, topic) => client?.subscribe(topic))
+    client?.subscribe('ceramientas/+/res', { qos: 1 })
   })
 
   client.on('close', () => {
@@ -33,6 +42,19 @@ export function iniciarMQTT() {
   })
 
   client.on('message', (topic, payload) => {
+    if (topic.endsWith('/res')) {
+      try {
+        const msg = JSON.parse(payload.toString())
+        const pend = pendientes.get(msg.reqId)
+        if (!pend) return
+        clearTimeout(pend.timer)
+        pendientes.delete(msg.reqId)
+        pend.resolve({ status: msg.status, data: msg.data })
+      } catch (e) {
+        console.error('[MQTT] parse res error', e)
+      }
+      return
+    }
     const cb = subs.get(topic)
     if (!cb) return
     try {
@@ -69,6 +91,40 @@ export function detenerMQTT() {
   client?.end()
   client = null
   conectado = false
+}
+
+export function mqttRequest(
+  hornoId: string,
+  path: string,
+  method: 'GET' | 'POST' | 'DELETE',
+  body?: string,
+  timeoutMs: number = 10000
+): Promise<{ status: number; data: unknown }> {
+  return new Promise((resolve, reject) => {
+    if (!estaConectado()) {
+      reject(new Error('MQTT no conectado'))
+      return
+    }
+    const auth = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
+    if (!auth) {
+      reject(new Error('Sin password guardada'))
+      return
+    }
+    const reqId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+    const req: Record<string, string> = { reqId, auth, method, path }
+    if (body) req.body = body
+    const timer = setTimeout(() => {
+      pendientes.delete(reqId)
+      reject(new Error('Timeout MQTT request'))
+    }, timeoutMs)
+    pendientes.set(reqId, { resolve, reject, timer })
+    const topic = `ceramientas/${hornoId}/req`
+    client!.publish(topic, JSON.stringify(req), { qos: 1 })
+  })
+}
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { mqttRequest: typeof mqttRequest }).mqttRequest = mqttRequest
 }
 
 function mapearEstado(d: any): EstadoMQTT {

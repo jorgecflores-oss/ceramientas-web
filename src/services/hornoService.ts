@@ -1,5 +1,6 @@
 import { HTTP_TIMEOUT, AP_IP, STORAGE_KEYS } from '../utils/constants'
-import type { InfoHorno, Programa } from '../types/horno'
+import type { InfoHorno, Programa, ConfigHorno } from '../types/horno'
+import { mqttRequest } from './mqttService'
 
 async function fetchTimeout(url: string, opts: RequestInit = {}, timeout = HTTP_TIMEOUT) {
   const ctrl = new AbortController()
@@ -12,89 +13,50 @@ async function fetchTimeout(url: string, opts: RequestInit = {}, timeout = HTTP_
   }
 }
 
+// Login: recibe IP directa, sin hornoId ni cache todavía
 export async function getInfo(ip: string): Promise<InfoHorno> {
   const res = await fetchTimeout(`http://${ip}/info`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
-export async function scanWifi(ip: string) {
-  const res = await fetchTimeout(`http://${ip}/wifi/scan`, {}, 10000)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function scanWifi(hornoId: string) {
+  return (await hornoRequest(hornoId, 'wifi/scan', 'GET')).data
 }
 
-export async function getEstado(ip: string, pass: string) {
-  const res = await fetchTimeout(`http://${ip}/estado`, {
-    headers: { 'X-Auth': pass },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function getEstado(hornoId: string) {
+  return (await hornoRequest(hornoId, 'estado', 'GET')).data
 }
 
-export async function getProgramas(ip: string, pass: string): Promise<Programa[]> {
-  const res = await fetchTimeout(`http://${ip}/programas`, {
-    headers: { 'X-Auth': pass },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function getProgramas(hornoId: string): Promise<Programa[]> {
+  return (await hornoRequest(hornoId, 'programas', 'GET')).data as Programa[]
 }
 
-export async function getHistorial(ip: string, pass: string) {
-  const res = await fetchTimeout(`http://${ip}/historial`, {
-    headers: { 'X-Auth': pass },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function getHistorial(hornoId: string) {
+  return (await hornoRequest(hornoId, 'historial', 'GET')).data
 }
 
-export async function deleteHistorial(ip: string, pass: string) {
-  const res = await fetchTimeout(`http://${ip}/historial`, {
-    method: 'DELETE',
-    headers: { 'X-Auth': pass },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function deleteHistorial(hornoId: string) {
+  return (await hornoRequest(hornoId, 'historial', 'DELETE')).data
 }
 
-export async function getCurva(ip: string, pass: string) {
-  const res = await fetchTimeout(`http://${ip}/curva`, {
-    headers: { 'X-Auth': pass },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function getCurva(hornoId: string) {
+  return (await hornoRequest(hornoId, 'curva', 'GET')).data
 }
 
-export async function getConfig(ip: string, pass: string) {
-  const res = await fetchTimeout(`http://${ip}/config`, {
-    headers: { 'X-Auth': pass },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function getConfig(hornoId: string): Promise<ConfigHorno> {
+  return (await hornoRequest(hornoId, 'config', 'GET')).data as ConfigHorno
 }
 
 export async function postConfig(
-  ip: string,
-  pass: string,
+  hornoId: string,
   config: { nombre?: string; potencia?: number }
 ) {
-  const res = await fetchTimeout(`http://${ip}/config`, {
-    method: 'POST',
-    headers: { 'X-Auth': pass, 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+  return (await hornoRequest(hornoId, 'config', 'POST', JSON.stringify(config))).data
 }
 
-export async function postComando(ip: string, pass: string, comando: string) {
-  const res = await fetchTimeout(`http://${ip}/comando`, {
-    method: 'POST',
-    headers: { 'X-Auth': pass, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: pass, comando }),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
+export async function postComando(hornoId: string, comando: string) {
+  return (await hornoRequest(hornoId, 'comando', 'POST', JSON.stringify({ comando }))).data
 }
 
 export async function probeAP(): Promise<boolean> {
@@ -114,17 +76,72 @@ export function getCachedIP(hornoId: string): string | null {
   return localStorage.getItem(STORAGE_KEYS.IP_CACHE(hornoId))
 }
 
-export async function fetchProgramasOnce(
-  ip: string,
-  pass: string,
-  hornoId: string
-): Promise<Programa[]> {
+const AP_CACHE = new Map<string, { ip: string; ts: number }>()
+const AP_TTL_MS = 60_000
+
+async function resolverIP(hornoId: string): Promise<string | null> {
+  const cached = AP_CACHE.get(hornoId)
+  if (cached && Date.now() - cached.ts < AP_TTL_MS) {
+    return cached.ip
+  }
+
   try {
-    const programas = await getProgramas(ip, pass)
-    localStorage.setItem(
-      STORAGE_KEYS.PROGRAMAS_CACHE(hornoId),
-      JSON.stringify(programas)
-    )
+    const resp = await fetch(`http://${AP_IP}/info`, {
+      signal: AbortSignal.timeout(500),
+    })
+    if (resp.ok) {
+      const info = await resp.json()
+      if (info.hornoId === hornoId) {
+        AP_CACHE.set(hornoId, { ip: AP_IP, ts: Date.now() })
+        return AP_IP
+      }
+    }
+  } catch {
+    // AP no responde, seguir
+  }
+
+  return getCachedIP(hornoId)
+}
+
+export async function hornoRequest(
+  hornoId: string,
+  path: string,
+  method: 'GET' | 'POST' | 'DELETE',
+  body?: string
+): Promise<{ status: number; data: unknown }> {
+  const ip = await resolverIP(hornoId)
+  const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
+
+  if (ip && password) {
+    try {
+      const opts: RequestInit = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth': password,
+        },
+        signal: AbortSignal.timeout(2000),
+      }
+      if (body && method !== 'GET') opts.body = body
+      const resp = await fetch(`http://${ip}/${path}`, opts)
+      const data = await resp.json()
+      return { status: resp.status, data }
+    } catch {
+      // HTTP falló, cae a MQTT
+    }
+  }
+
+  return mqttRequest(hornoId, path, method, body)
+}
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { hornoRequest: typeof hornoRequest }).hornoRequest = hornoRequest
+}
+
+export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
+  try {
+    const programas = await getProgramas(hornoId)
+    localStorage.setItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId), JSON.stringify(programas))
     return programas
   } catch (e) {
     const cached = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId))

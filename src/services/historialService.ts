@@ -1,5 +1,6 @@
 import { STORAGE_KEYS } from '../utils/constants'
 import type { Horneada, HorneadaFirmware } from '../types/horno'
+import { hornoRequest } from './hornoService'
 
 function motivoDesdeEstado(estado?: number, motivo?: string): string {
   if (motivo) return motivo
@@ -46,23 +47,12 @@ export function getHistorialCache(hornoId: string): Horneada[] {
   return []
 }
 
-export async function getHistorial(hornoId: string, ip: string, pass: string): Promise<Horneada[]> {
+export async function getHistorial(hornoId: string): Promise<Horneada[]> {
   const deleted = getDeletedSet(hornoId)
   try {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 8000)
-    let lista: Horneada[]
-    try {
-      const res = await fetch(`http://${ip}/historial`, {
-        headers: { 'X-Auth': pass },
-        signal: ctrl.signal,
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json() as { registros: HorneadaFirmware[] }
-      lista = (data.registros ?? []).map(normalizarESP32)
-    } finally {
-      clearTimeout(timer)
-    }
+    const res = await hornoRequest(hornoId, 'historial', 'GET')
+    const data = res.data as { registros: HorneadaFirmware[] }
+    let lista = (data.registros ?? []).map(normalizarESP32)
     if (deleted.size > 0) lista = lista.filter(r => !deleted.has(String(r.timestamp)))
     try {
       localStorage.setItem(STORAGE_KEYS.HISTORIAL_CACHE(hornoId), JSON.stringify(lista))
@@ -89,19 +79,8 @@ export function deleteHistorialItem(hornoId: string, timestamp: number): void {
   } catch {}
 }
 
-export async function deleteHistorialAll(hornoId: string, ip: string, pass: string): Promise<void> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 8000)
-  try {
-    const res = await fetch(`http://${ip}/historial`, {
-      method: 'DELETE',
-      headers: { 'X-Auth': pass },
-      signal: ctrl.signal,
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  } finally {
-    clearTimeout(timer)
-  }
+export async function deleteHistorialAll(hornoId: string): Promise<void> {
+  await hornoRequest(hornoId, 'historial', 'DELETE')
   localStorage.removeItem(STORAGE_KEYS.HISTORIAL_CACHE(hornoId))
   localStorage.removeItem(STORAGE_KEYS.HISTORIAL_BORRADOS(hornoId))
 }

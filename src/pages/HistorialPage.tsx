@@ -58,7 +58,6 @@ function ModalConfirmar({ titulo, mensaje, onCancelar, onConfirmar }: {
 
 export function HistorialPage() {
   const horno = useHornoStore(s => s.hornoActivo)
-  const pass = useHornoStore(s => s.password)
 
   const [historial, setHistorial] = useState<Horneada[]>([])
   const [cargando, setCargando] = useState(false)
@@ -67,17 +66,17 @@ export function HistorialPage() {
   const [confirmarBorrarItem, setConfirmarBorrarItem] = useState<Horneada | null>(null)
 
   const cargar = useCallback(async () => {
-    if (!horno?.hornoId || !horno.ip || !pass) return
+    if (!horno?.hornoId) return
     setCargando(true)
     try {
-      const data = await getHistorial(horno.hornoId, horno.ip, pass)
+      const data = await getHistorial(horno.hornoId)
       setHistorial(data)
     } catch (e) {
       console.error('[historial]', e)
     } finally {
       setCargando(false)
     }
-  }, [horno?.hornoId, horno?.ip, pass])
+  }, [horno?.hornoId])
 
   useEffect(() => {
     const hornoId = horno?.hornoId ?? ''
@@ -219,9 +218,9 @@ export function HistorialPage() {
           mensaje="Esta acción no se puede deshacer."
           onCancelar={() => setConfirmarBorrarTodo(false)}
           onConfirmar={async () => {
-            if (horno?.ip && pass) {
+            if (horno) {
               try {
-                await deleteHistorialAll(horno.hornoId, horno.ip, pass)
+                await deleteHistorialAll(horno.hornoId)
                 setHistorial([])
               } catch {
                 alert('Error borrando historial')

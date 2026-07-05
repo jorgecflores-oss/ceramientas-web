@@ -30,28 +30,27 @@ const formatVel = (v: number) => `${(v / 10).toFixed(1)}°C/min`
 
 export function ProgramasPage() {
   const horno = useHornoStore(s => s.hornoActivo)
-  const pass = useHornoStore(s => s.password)
   const programas = useHornoStore(s => s.programas)
   const setProgramas = useHornoStore(s => s.setProgramas)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!horno?.ip || !pass || !horno?.hornoId) return
+    if (!horno?.hornoId) return
     if (programas.length > 0) return
     setCargando(true)
-    fetchProgramasOnce(horno.ip, pass, horno.hornoId)
+    fetchProgramasOnce(horno.hornoId)
       .then(p => setProgramas(p))
       .catch(e => setError(String(e)))
       .finally(() => setCargando(false))
-  }, [horno?.ip, horno?.hornoId, pass, programas.length, setProgramas])
+  }, [horno?.hornoId, programas.length, setProgramas])
 
   async function ejecutar(idx: number) {
     if (!horno) return
     const ok = publicarComando(horno.hornoId, `ejecutar:${idx}`)
-    if (!ok && horno.ip && pass) {
+    if (!ok) {
       try {
-        await postComando(horno.ip, pass, `ejecutar:${idx}`)
+        await postComando(horno.hornoId, `ejecutar:${idx}`)
       } catch (e) {
         alert('Error ejecutando programa')
       }

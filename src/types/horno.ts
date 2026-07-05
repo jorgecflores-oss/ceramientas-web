@@ -61,6 +61,14 @@ export interface InfoHorno {
   mac: string
 }
 
+export interface ConfigHorno {
+  nombre?: string
+  potencia?: number
+  factura?: number
+  consumo?: number
+  versionFirmware?: string
+}
+
 export interface Horneada {
   id: string
   programa: string
