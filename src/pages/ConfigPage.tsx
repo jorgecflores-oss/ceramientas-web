@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { getConfig, postComando, postConfig } from '../services/hornoService'
+import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
+import { AP_IP } from '../utils/constants'
+
+type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
+type WifiStep = null | 'detectando' | 'listo' | 'instrucciones'
 
 export function ConfigPage() {
   const horno = useHornoStore(s => s.hornoActivo)
@@ -20,6 +24,15 @@ export function ConfigPage() {
   const [nombreInput, setNombreInput] = useState('')
   const [guardandoNombre, setGuardandoNombre] = useState(false)
 
+  const [otaStep, setOtaStep] = useState<OtaStep>(null)
+  const [otaProgress, setOtaProgress] = useState(0)
+  const [otaMensaje, setOtaMensaje] = useState('')
+  const [otaVersionGitHub, setOtaVersionGitHub] = useState('')
+  const otaIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const [wifiStep, setWifiStep] = useState<WifiStep>(null)
+  const [wifiUrl, setWifiUrl] = useState('')
+
   useEffect(() => {
     if (!horno?.hornoId) return
     getConfig(horno.hornoId)
@@ -31,6 +44,12 @@ export function ConfigPage() {
       })
       .catch(e => console.error('[getConfig]', e))
   }, [horno?.hornoId])
+
+  useEffect(() => {
+    return () => {
+      if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
+    }
+  }, [])
 
   async function guardarParams() {
     const potV = Number(potencia)
@@ -88,6 +107,121 @@ export function ConfigPage() {
     if (!horno) return
     quitarHorno(horno.hornoId)
     setConfirmarDesvincular(false)
+  }
+
+  function cerrarWifi() {
+    setWifiStep(null)
+    setWifiUrl('')
+  }
+
+  async function abrirConfigWifi() {
+    setWifiStep('detectando')
+    // 1. Probar si el AP del firmware responde (usuario conectado al hotspot)
+    try {
+      const resp = await fetch(`http://${AP_IP}/info`, { signal: AbortSignal.timeout(800) })
+      if (resp.ok) {
+        setWifiUrl(`http://${AP_IP}/`)
+        setWifiStep('listo')
+        return
+      }
+    } catch {}
+    // 2. Usar IP LAN cacheada
+    if (horno?.hornoId) {
+      const ip = getCachedIP(horno.hornoId)
+      if (ip) {
+        setWifiUrl(`http://${ip}/`)
+        setWifiStep('listo')
+        return
+      }
+    }
+    // 3. No hay ruta disponible — mostrar instrucciones
+    setWifiStep('instrucciones')
+  }
+
+  function cerrarOTA() {
+    if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
+    setOtaStep(null)
+    setOtaProgress(0)
+    setOtaMensaje('')
+    setOtaVersionGitHub('')
+  }
+
+  async function iniciarOTA() {
+    if (!horno?.hornoId) return
+    if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
+    setOtaProgress(0)
+    setOtaMensaje('')
+    setOtaVersionGitHub('')
+    setOtaStep('checking')
+
+    try {
+      // 1. Verificar versión disponible en GitHub
+      try {
+        const ghResp = await fetch(OTA_VERSION_URL)
+        if (ghResp.ok) {
+          const ghJson = await ghResp.json() as { version?: string }
+          const remoteVer = (ghJson.version ?? '').trim()
+          if (remoteVer) {
+            setOtaVersionGitHub(remoteVer)
+            if (versionFw && remoteVer === versionFw) {
+              setOtaStep('current')
+              return
+            }
+          }
+        }
+      } catch {}
+
+      // 2. Disparar OTA en el firmware
+      const json = await postOTA(horno.hornoId)
+      const msg = (json.msg ?? '').toLowerCase()
+      if (msg.includes('no hay') || msg.includes('igual') || (msg.includes('actualiz') && msg.includes('ya'))) {
+        setOtaStep('current')
+        return
+      }
+
+      // 3. Polling real de /ota/status cada 2s
+      setOtaStep('downloading')
+      setOtaProgress(5)
+      let instalandoConfirmado = false
+      let pollsInactivos = 0
+      let segundosPoll = 0
+      const hornoId = horno.hornoId
+
+      otaIntervalRef.current = setInterval(async () => {
+        segundosPoll += 2
+        const status = await getOTAStatus(hornoId)
+
+        if (status?.enProgreso) {
+          instalandoConfirmado = true
+          pollsInactivos = 0
+          const p = Math.min(90, 10 + Math.round(80 * (1 - Math.exp(-segundosPoll / 30))))
+          setOtaProgress(p)
+        } else if (instalandoConfirmado) {
+          if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
+          setOtaProgress(100)
+          setOtaStep('done')
+        } else {
+          pollsInactivos += 1
+          if (pollsInactivos >= 4) {
+            // 8s sin actividad → firmware no encontró versión nueva
+            if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
+            setOtaStep('current')
+            return
+          }
+          setOtaProgress(Math.min(15, segundosPoll * 2))
+        }
+
+        if (segundosPoll >= 60) {
+          if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
+          setOtaStep('done')
+        }
+      }, 2000)
+
+    } catch (e) {
+      if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
+      setOtaMensaje((e as Error).message || 'No se pudo conectar con el horno')
+      setOtaStep('error')
+    }
   }
 
   return (
@@ -212,8 +346,9 @@ export function ConfigPage() {
               </button>
 
               <button
-                disabled
-                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 opacity-50 cursor-not-allowed"
+                onClick={abrirConfigWifi}
+                disabled={wifiStep !== null}
+                className={`w-full flex items-center gap-4 py-3 border-b border-neutral-800 transition ${wifiStep !== null ? 'opacity-50 cursor-not-allowed' : 'hover:bg-neutral-800 rounded-xl'}`}
               >
                 <span className="text-2xl">📡</span>
                 <div className="flex-1 text-left">
@@ -224,13 +359,16 @@ export function ConfigPage() {
               </button>
 
               <button
-                disabled
-                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 opacity-50 cursor-not-allowed"
+                onClick={iniciarOTA}
+                disabled={otaStep !== null}
+                className={`w-full flex items-center gap-4 py-3 border-b border-neutral-800 transition ${otaStep !== null ? 'opacity-50 cursor-not-allowed' : 'hover:bg-neutral-800 rounded-xl'}`}
               >
                 <span className="text-2xl">⬆️</span>
                 <div className="flex-1 text-left">
                   <p className="text-white text-sm font-semibold">Actualizar firmware</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">Instalar nueva versión OTA</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">
+                    {versionFw ? `v${versionFw} instalada` : 'Instalar nueva versión OTA'}
+                  </p>
                 </div>
                 <span className="text-neutral-600">›</span>
               </button>
@@ -254,6 +392,166 @@ export function ConfigPage() {
         </p>
 
       </div>
+
+      {/* Modal WiFi Setup */}
+      {wifiStep !== null && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
+          <div className="bg-neutral-900 rounded-2xl p-7 max-w-sm w-full border border-neutral-800 flex flex-col items-center text-center">
+
+            {wifiStep === 'detectando' && (
+              <>
+                <div className="w-10 h-10 border-4 border-neutral-700 border-t-orange-500 rounded-full animate-spin mb-4" />
+                <p className="text-white font-bold text-lg mb-2">Detectando controlador...</p>
+              </>
+            )}
+
+            {wifiStep === 'listo' && (
+              <>
+                <p className="text-4xl mb-3">📡</p>
+                <p className="text-white font-bold text-lg mb-2">Configurar WiFi</p>
+                <p className="text-neutral-400 text-sm mb-6">
+                  Se abrirá la página de configuración del controlador en una nueva pestaña.
+                  Desde ahí podés escanear y conectar a una red WiFi nueva.
+                </p>
+                <div className="flex gap-2 w-full">
+                  <button
+                    onClick={cerrarWifi}
+                    className="flex-1 py-3 border border-neutral-700 rounded-xl text-neutral-400 text-sm hover:bg-neutral-800 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => { window.open(wifiUrl, '_blank'); cerrarWifi() }}
+                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition"
+                  >
+                    Abrir
+                  </button>
+                </div>
+              </>
+            )}
+
+            {wifiStep === 'instrucciones' && (
+              <>
+                <p className="text-4xl mb-3">📡</p>
+                <p className="text-white font-bold text-lg mb-2">Conectate al hotspot</p>
+                <div className="bg-neutral-800 rounded-xl p-4 w-full mb-4 text-left">
+                  <p className="text-xs text-neutral-400 uppercase tracking-wider mb-2">Red WiFi</p>
+                  <p className="text-orange-400 font-bold font-mono">
+                    CERAMIENTAS_{horno?.hornoId?.slice(-4) ?? '????'}
+                  </p>
+                  <p className="text-xs text-neutral-400 uppercase tracking-wider mt-3 mb-1">Contraseña</p>
+                  <p className="text-white font-mono">ceramientas</p>
+                </div>
+                <p className="text-neutral-400 text-sm mb-6">
+                  Conectate a esa red desde tu dispositivo y volvé a intentar.
+                </p>
+                <div className="flex gap-2 w-full">
+                  <button
+                    onClick={cerrarWifi}
+                    className="flex-1 py-3 border border-neutral-700 rounded-xl text-neutral-400 text-sm hover:bg-neutral-800 transition"
+                  >
+                    Cerrar
+                  </button>
+                  <button
+                    onClick={abrirConfigWifi}
+                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              </>
+            )}
+
+          </div>
+        </div>
+      )}
+
+      {/* Modal OTA */}
+      {otaStep !== null && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
+          <div className="bg-neutral-900 rounded-2xl p-7 max-w-sm w-full border border-neutral-800 flex flex-col items-center text-center">
+
+            {otaStep === 'checking' && (
+              <>
+                <div className="w-10 h-10 border-4 border-neutral-700 border-t-orange-500 rounded-full animate-spin mb-4" />
+                <p className="text-white font-bold text-lg mb-2">Verificando...</p>
+                <p className="text-neutral-400 text-sm">Conectando con el controlador</p>
+              </>
+            )}
+
+            {otaStep === 'downloading' && (
+              <>
+                <p className="text-4xl mb-3">📦</p>
+                <p className="text-white font-bold text-lg mb-2">Instalando actualización</p>
+                <p className="text-neutral-400 text-sm mb-5">No apagues el horno ni cierres la pestaña</p>
+                <div className="w-full bg-neutral-800 rounded-full h-1.5 overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-orange-500 rounded-full transition-all duration-500"
+                    style={{ width: `${otaProgress}%` }}
+                  />
+                </div>
+                <p className="text-neutral-500 text-xs mb-5">{otaProgress}%</p>
+                <button
+                  onClick={cerrarOTA}
+                  className="w-full py-3 border border-neutral-700 rounded-xl text-neutral-400 text-sm hover:bg-neutral-800 transition"
+                >
+                  Cancelar espera
+                </button>
+              </>
+            )}
+
+            {otaStep === 'current' && (
+              <>
+                <p className="text-4xl mb-3">✅</p>
+                <p className="text-white font-bold text-lg mb-2">Ya tenés la última versión</p>
+                <p className="text-neutral-400 text-sm mb-6">
+                  {otaVersionGitHub
+                    ? `v${otaVersionGitHub} es la versión más reciente.`
+                    : versionFw ? `v${versionFw} es la versión más reciente.` : 'El firmware ya está actualizado.'}
+                </p>
+                <button
+                  onClick={cerrarOTA}
+                  className="w-full py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition"
+                >
+                  Cerrar
+                </button>
+              </>
+            )}
+
+            {otaStep === 'done' && (
+              <>
+                <p className="text-4xl mb-3">✅</p>
+                <p className="text-white font-bold text-lg mb-2">Actualización instalada</p>
+                <p className="text-neutral-400 text-sm mb-6">
+                  El controlador se está reiniciando.
+                  Puede tardar unos segundos en volver a conectarse.
+                </p>
+                <button
+                  onClick={cerrarOTA}
+                  className="w-full py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition"
+                >
+                  Cerrar
+                </button>
+              </>
+            )}
+
+            {otaStep === 'error' && (
+              <>
+                <p className="text-4xl mb-3">⚠️</p>
+                <p className="text-red-400 font-bold text-lg mb-2">Error</p>
+                <p className="text-neutral-400 text-sm mb-6">{otaMensaje}</p>
+                <button
+                  onClick={cerrarOTA}
+                  className="w-full py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition"
+                >
+                  Cerrar
+                </button>
+              </>
+            )}
+
+          </div>
+        </div>
+      )}
 
       {confirmarDesvincular && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">

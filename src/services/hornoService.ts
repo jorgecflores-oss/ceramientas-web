@@ -1,4 +1,4 @@
-import { HTTP_TIMEOUT, AP_IP, STORAGE_KEYS } from '../utils/constants'
+import { HTTP_TIMEOUT, AP_IP, STORAGE_KEYS, OTA_VERSION_URL } from '../utils/constants'
 import type { InfoHorno, Programa, ConfigHorno } from '../types/horno'
 import { mqttRequest } from './mqttService'
 import { useHornoStore } from '../store/hornoStore'
@@ -66,6 +66,48 @@ export async function postComando(hornoId: string, comando: string) {
   return (await hornoRequest(hornoId, 'comando', 'POST', JSON.stringify({ comando }))).data
 }
 
+export async function postOTA(hornoId: string): Promise<{ ok: boolean; msg?: string }> {
+  const ip = await resolverIP(hornoId)
+  if (!ip) throw new Error('No se pudo encontrar el horno')
+  const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId)) ?? ''
+  const doPost = (pass: string) => fetchTimeout(`http://${ip}/ota`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Auth': pass },
+    body: JSON.stringify({}),
+  })
+  let resp = await doPost(password)
+  if (resp.status === 401) {
+    const passDefault = hornoId.slice(-6).toLowerCase()
+    if (password !== passDefault) {
+      resp = await doPost(passDefault)
+      if (resp.ok) localStorage.setItem(STORAGE_KEYS.PASS(hornoId), passDefault)
+    }
+  }
+  const json = await resp.json().catch(() => ({})) as { ok?: boolean; msg?: string; error?: string }
+  if (!resp.ok) throw new Error(json.error ?? `Error HTTP ${resp.status}`)
+  return json as { ok: boolean; msg?: string }
+}
+
+export async function getOTAStatus(hornoId: string): Promise<{
+  version: string; enProgreso: boolean; disponible: boolean; versionNueva: string
+} | null> {
+  try {
+    const ip = resolverCachedIP(hornoId)
+    if (!ip) return null
+    const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId)) ?? ''
+    const resp = await fetchTimeout(`http://${ip}/ota/status`, {
+      headers: { 'X-Auth': password },
+    }, 3000)
+    if (!resp.ok) return null
+    return resp.json() as Promise<{ version: string; enProgreso: boolean; disponible: boolean; versionNueva: string }>
+  } catch {
+    return null
+  }
+}
+
+// Exportado para reusar en AjustesScreen, CurvaGrafico, etc.
+export { OTA_VERSION_URL }
+
 export async function probeAP(): Promise<boolean> {
   try {
     await fetchTimeout(`http://${AP_IP}/info`, {}, 800)
@@ -85,6 +127,13 @@ export function getCachedIP(hornoId: string): string | null {
 
 const AP_CACHE = new Map<string, { ip: string; ts: number }>()
 const AP_TTL_MS = 60_000
+
+// Lee IP solo de caché (sin probe AP) — para polling frecuente
+function resolverCachedIP(hornoId: string): string | null {
+  const cached = AP_CACHE.get(hornoId)
+  if (cached && Date.now() - cached.ts < AP_TTL_MS) return cached.ip
+  return getCachedIP(hornoId)
+}
 
 async function resolverIP(hornoId: string): Promise<string | null> {
   const cached = AP_CACHE.get(hornoId)
