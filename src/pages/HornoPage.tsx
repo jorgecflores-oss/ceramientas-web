@@ -22,7 +22,6 @@ export function HornoPage() {
   const horno = useHornoStore((s) => s.hornoActivo)
   const pass = useHornoStore((s) => s.password)
   const estado = useHornoStore((s) => s.estado)
-  const mqttConectado = useHornoStore((s) => s.mqttConectado)
   const hornoId = useHornoStore((s) => s.hornoActivoId)
   const ultimoVia = useHornoStore((s) => hornoId ? s.ultimoVia[hornoId] ?? null : null)
   const ultimoAt = useHornoStore((s) => hornoId ? s.ultimoRespuestaAt[hornoId] ?? 0 : 0)
@@ -34,6 +33,7 @@ export function HornoPage() {
   const setCurvaTeorica = useHornoStore((s) => s.setCurvaTeorica)
   const clearCurvaTeorica = useHornoStore((s) => s.clearCurvaTeorica)
   const resetHistorial = useHornoStore((s) => s.resetHistorial)
+  const registrarRespuesta = useHornoStore((s) => s.registrarRespuesta)
   const loadCurvaFromStorage = useHornoStore((s) => s.loadCurvaFromStorage)
   const setHorno = useHornoStore((s) => s.setHorno)
   const tInicio = useHornoStore((s) => s.tInicio)
@@ -49,11 +49,12 @@ export function HornoPage() {
     if (!horno) return
     const unsub = suscribirEstado(horno.hornoId, (data) => {
       setEstado(data)
+      registrarRespuesta(horno.hornoId, 'mqtt')
       const activo = data.estado === 'ejecutando' || data.estado === 'rampa' || data.estado === 'meseta'
       if (activo) pushTemp(data.temperatura)
     })
     return unsub
-  }, [horno, setEstado, pushTemp])
+  }, [horno, setEstado, pushTemp, registrarRespuesta])
 
   useEffect(() => {
     loadCurvaFromStorage()
@@ -109,10 +110,9 @@ export function HornoPage() {
   }, [tInicio])
 
   useEffect(() => {
-    if (ultimoVia !== 'http') return
-    const id = setInterval(() => setTick(n => n + 1), 1000)
+    const id = setInterval(() => setTick(n => n + 1), 2000)
     return () => clearInterval(id)
-  }, [ultimoVia])
+  }, [])
 
   async function parar() {
     if (!horno) return
@@ -200,10 +200,12 @@ export function HornoPage() {
     estadoTxt === 'alarma_exceso' ||
     estadoTxt === 'alarma_critica'
 
+  const VENTANA_MQTT = 60_000
   const VENTANA_LOCAL = 30_000
+  const mqttHornoOnline = ultimoVia === 'mqtt' && (Date.now() - ultimoAt) < VENTANA_MQTT
   const lanReciente = ultimoVia === 'http' && (Date.now() - ultimoAt) < VENTANA_LOCAL
   const estadoConexion: 'online' | 'local' | 'offline' =
-    mqttConectado ? 'online'
+    mqttHornoOnline ? 'online'
     : lanReciente ? 'local'
     : 'offline'
 
