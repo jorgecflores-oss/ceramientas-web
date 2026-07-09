@@ -140,12 +140,8 @@ export function ProgramasPage() {
   function editarNuevoPaso(pasoIdx: number, campo: keyof Paso, rawValor: string) {
     if (!nuevoPrograma) return
     const valor = parseFloat(rawValor)
-    const nuevoPaso = { ...nuevoPrograma.pasos[pasoIdx] }
-    if (campo === 'velocidad') {
-      nuevoPaso.velocidad = isNaN(valor) ? 0 : Math.round(valor * 10)
-    } else {
-      (nuevoPaso[campo] as number) = isNaN(valor) ? 0 : Math.round(valor)
-    }
+    const num = isNaN(valor) ? 0 : (campo === 'velocidad' ? valor : Math.round(valor))
+    const nuevoPaso: Paso = { ...nuevoPrograma.pasos[pasoIdx], [campo]: num }
     setNuevoPrograma({ ...nuevoPrograma, pasos: nuevoPrograma.pasos.map((p, i) => i === pasoIdx ? nuevoPaso : p) })
   }
 
@@ -170,9 +166,10 @@ export function ProgramasPage() {
     const slot = slotLibre()
     if (slot === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
     const tempFinal = [...nuevoPrograma.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
+    const pasosParaFirmware = nuevoPrograma.pasos.map(p => ({ ...p, velocidad: Math.round(p.velocidad * 10) }))
     setGuardandoNuevo(true)
     try {
-      await postPrograma(horno.hornoId, slot, { nombre, pasos: nuevoPrograma.pasos, tempFinal })
+      await postPrograma(horno.hornoId, slot, { nombre, pasos: pasosParaFirmware, tempFinal })
       const actualizados = await fetchProgramasOnce(horno.hornoId)
       setProgramas(actualizados)
       setNuevoPrograma(null)
@@ -214,7 +211,7 @@ export function ProgramasPage() {
           <button
             onClick={() => {
               if (slotLibre() === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
-              setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 10, temperatura: 600, tiempo: 0 }] })
+              setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 1, temperatura: 600, tiempo: 0 }] })
             }}
             className="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-full text-sm font-semibold transition"
           >
@@ -394,7 +391,8 @@ export function ProgramasPage() {
                       type="number"
                       step="0.1"
                       min="0"
-                      value={(paso.velocidad / 10).toFixed(1)}
+                      value={paso.velocidad || ''}
+                      placeholder="0"
                       onChange={e => editarNuevoPaso(i, 'velocidad', e.target.value)}
                       className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />

@@ -372,11 +372,12 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const puntosTeoricoActuales = s.puntosTeoricosMap[id] ?? []
     const histActual = s.historialTemps[id] ?? []
     if (!tInicioActual || puntosTeoricoActuales.length <= 1 || histActual.length === 0) return
+    const lastDataT = histActual[histActual.length - 1].t
     const snap: Snapshot = {
       puntosTeoricos: puntosTeoricoActuales,
       historialTemp: histActual,
       tInicio: tInicioActual,
-      xAhoraFinal: (Date.now() - tInicioActual) / 60000,
+      xAhoraFinal: (lastDataT - tInicioActual) / 60000,
     }
     try { localStorage.setItem(STORAGE_KEYS.SNAPSHOT(id), JSON.stringify(snap)) } catch {}
     const snapshots = { ...s.snapshots, [id]: snap }

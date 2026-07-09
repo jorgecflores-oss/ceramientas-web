@@ -96,7 +96,9 @@ export function HornoPage() {
   }, [horno?.hornoId])
 
   useEffect(() => {
-    if (!tInicio) {
+    const estadoActual = estado?.estado
+    const activo = estadoActual === 'ejecutando' || estadoActual === 'rampa' || estadoActual === 'meseta'
+    if (!tInicio || !activo) {
       setXAhora(undefined)
       return
     }
@@ -107,7 +109,7 @@ export function HornoPage() {
     actualizar()
     const id = setInterval(actualizar, 5000)
     return () => clearInterval(id)
-  }, [tInicio])
+  }, [tInicio, estado?.estado])
 
   useEffect(() => {
     const id = setInterval(() => setTick(n => n + 1), 2000)
@@ -178,6 +180,9 @@ export function HornoPage() {
       }
       calcularYGuardarCurva(true)
     } else if (prevEraActivo && actualInactivo) {
+      clearCurvaTeorica()
+    } else if (prev === null && actualInactivo) {
+      // App recargó con el horno ya detenido: guardar snapshot de la última horneada y limpiar
       clearCurvaTeorica()
     }
 
