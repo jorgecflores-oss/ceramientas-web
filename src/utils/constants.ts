@@ -4,6 +4,7 @@ export const MQTT_PASS = '8264Tomy'
 
 export const HTTP_TIMEOUT = 5000
 export const AP_IP = '192.168.4.1'
+export const OTA_VERSION_URL = 'https://raw.githubusercontent.com/jorgecflores-oss/ceramientas-firmware/main/version.json'
 
 export const STORAGE_KEYS = {
   HORNO_ID: '@ceramientas_horno_id',
