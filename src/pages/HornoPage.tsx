@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
-import { suscribirEstado, publicarComando } from '../services/mqttService'
+import { suscribirEstado, suscribirNotif, publicarComando } from '../services/mqttService'
 import { postComando, fetchProgramasOnce, getConfig, getEstado } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
@@ -41,9 +41,16 @@ export function HornoPage() {
   const snapshot = useHornoStore((s) => s.snapshot)
   const programaActivo = useHornoStore((s) => s.programaActivo)
 
-  const estadoPrevioRef = useRef<string | null>(null)
+  const estadoPrevioRef      = useRef<string | null>(null)
+  const corteLuzCooldownRef  = useRef(0)
+  const rampaRapidaShownRef  = useRef(false)
+  const toastIdRef           = useRef(0)
+
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
   const [, setTick] = useState(0)
+  const [modalCorteLuz, setModalCorteLuz]     = useState(false)
+  const [modalRampaRapida, setModalRampaRapida] = useState(false)
+  const [toasts, setToasts] = useState<{ id: number; msg: string; tipo: 'info' | 'warn' | 'error' }[]>([])
 
   useEffect(() => {
     if (!horno) return
@@ -115,6 +122,69 @@ export function HornoPage() {
     const id = setInterval(() => setTick(n => n + 1), 2000)
     return () => clearInterval(id)
   }, [])
+
+  const mostrarToast = useCallback((msg: string, tipo: 'info' | 'warn' | 'error' = 'info') => {
+    const id = ++toastIdRef.current
+    setToasts(prev => [...prev, { id, msg, tipo }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000)
+  }, [])
+
+  // Corte de luz detectado por campo cl del estado
+  useEffect(() => {
+    if (!estado?.corteLuz) return
+    const now = Date.now()
+    if (now - corteLuzCooldownRef.current < 30000) return
+    corteLuzCooldownRef.current = now
+    setModalCorteLuz(true)
+  }, [estado?.corteLuz])
+
+  // Rampa rápida detectada por campo rr del estado
+  useEffect(() => {
+    if (!estado?.rampaRapida) { rampaRapidaShownRef.current = false; return }
+    if (rampaRapidaShownRef.current) return
+    rampaRapidaShownRef.current = true
+    setModalRampaRapida(true)
+  }, [estado?.rampaRapida])
+
+  // Notificaciones tipadas del firmware via topic /notif
+  useEffect(() => {
+    if (!horno) return
+    const unsub = suscribirNotif(horno.hornoId, (notif) => {
+      const now = Date.now()
+      if (notif.tipo === 'corte_luz') {
+        if (now - corteLuzCooldownRef.current < 30000) return
+        corteLuzCooldownRef.current = now
+        setModalCorteLuz(true)
+      } else if (notif.tipo === 'rampa_rapida') {
+        if (rampaRapidaShownRef.current) return
+        rampaRapidaShownRef.current = true
+        setModalRampaRapida(true)
+      } else if (notif.tipo === 'etapa') {
+        const msg = notif.msg?.replace(/(\d+)C$/, '$1°C') ?? 'Nueva etapa iniciada'
+        mostrarToast(`${horno.nombre}: ${msg}`, 'info')
+      } else if (notif.tipo === 'meseta') {
+        const msg = notif.msg?.replace(/(\d+)C\b/, '$1°C') ?? 'Meseta alcanzada'
+        mostrarToast(`${horno.nombre}: ${msg}`, 'info')
+      } else if (notif.tipo === 'fin') {
+        mostrarToast(`${horno.nombre}: ${notif.msg ?? 'Horneado finalizado'}`, 'info')
+      } else if (notif.tipo === 'alarma_critica') {
+        mostrarToast(`${horno.nombre}: ${notif.msg ?? '¡ALARMA! Temperatura máxima superada'}`, 'error')
+      } else if (notif.tipo === 'alarma_exceso') {
+        mostrarToast(`${horno.nombre}: ${notif.msg ?? 'Exceso de temperatura final'}`, 'warn')
+      } else if (notif.tipo === 'rampa_lenta') {
+        mostrarToast(`${horno.nombre}: ${notif.msg ?? 'La rampa progresa muy lentamente'}`, 'warn')
+      }
+    })
+    return unsub
+  }, [horno, mostrarToast])
+
+  async function enviarCmd(cmd: string) {
+    if (!horno) return
+    const mqttOk = publicarComando(horno.hornoId, cmd)
+    if (!mqttOk) {
+      try { await postComando(horno.hornoId, cmd) } catch { /* sin conexión */ }
+    }
+  }
 
   async function parar() {
     if (!horno) return
@@ -215,6 +285,7 @@ export function HornoPage() {
     : 'offline'
 
   return (
+    <>
     <div className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
       <div className="max-w-md mx-auto">
       <SelectorHorno />
@@ -299,14 +370,26 @@ export function HornoPage() {
       </div>
 
       {estado?.corteLuz && (
-        <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-4">
+        <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-4 flex items-center justify-between">
           <p className="text-red-400 font-semibold">⚡ Corte de luz detectado</p>
+          <button
+            onClick={() => { corteLuzCooldownRef.current = 0; setModalCorteLuz(true) }}
+            className="text-xs text-red-400 border border-red-800 rounded px-2 py-1 hover:bg-red-900/50"
+          >
+            Ver opciones
+          </button>
         </div>
       )}
 
       {estado?.rampaRapida && (
-        <div className="bg-yellow-900/30 border border-yellow-800 rounded-lg p-4 mb-4">
-          <p className="text-yellow-400 font-semibold">⚠ Rampa rápida (posible contacto pegado)</p>
+        <div className="bg-yellow-900/30 border border-yellow-800 rounded-lg p-4 mb-4 flex items-center justify-between">
+          <p className="text-yellow-400 font-semibold">⚠ Rampa rápida</p>
+          <button
+            onClick={() => { rampaRapidaShownRef.current = false; setModalRampaRapida(true) }}
+            className="text-xs text-yellow-400 border border-yellow-800 rounded px-2 py-1 hover:bg-yellow-900/50"
+          >
+            Ver alerta
+          </button>
         </div>
       )}
 
@@ -323,5 +406,87 @@ export function HornoPage() {
 
       </div>
     </div>
+
+    {/* Toast stack — eventos del firmware */}
+    {toasts.length > 0 && (
+      <div className="fixed top-4 left-0 right-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none">
+        {toasts.map(t => (
+          <div key={t.id} className={`rounded-xl px-4 py-3 text-sm font-semibold shadow-lg w-full max-w-sm text-center pointer-events-auto
+            ${t.tipo === 'error' ? 'bg-red-900/95 text-red-100 border border-red-700' :
+              t.tipo === 'warn'  ? 'bg-yellow-900/95 text-yellow-100 border border-yellow-700' :
+                                   'bg-neutral-800/95 text-white border border-neutral-600'}`}>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+    )}
+
+    {/* Modal — Corte de luz */}
+    {modalCorteLuz && (
+      <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 w-full max-w-sm">
+          <h2 className="text-xl font-bold text-white mb-2">⚡ Corte de luz — {horno.nombre}</h2>
+          <p className="text-neutral-400 text-sm mb-1">Suministro reestablecido.</p>
+          {(estado?.temperatura ?? 0) > 0 && (
+            <p className="text-sm mb-4">
+              Temperatura del horno:{' '}
+              <span className="text-orange-400 font-bold">{Math.round(estado!.temperatura)}°C</span>
+            </p>
+          )}
+          <p className="text-neutral-300 text-sm mb-6">¿Continuamos la horneada?</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setModalCorteLuz(false); enviarCmd('detener') }}
+              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 transition"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => { setModalCorteLuz(false); enviarCmd('continuar') }}
+              className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 rounded-xl text-white font-bold transition"
+            >
+              Continuar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Modal — Rampa rápida */}
+    {modalRampaRapida && (
+      <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div className="bg-neutral-900 border border-red-800 rounded-2xl p-6 w-full max-w-sm">
+          <h2 className="text-xl font-bold text-red-400 mb-2">⚡ Rampa acelerada — {horno.nombre}</h2>
+          <p className="text-neutral-400 text-sm mb-2">
+            La temperatura sube <span className="text-red-400 font-bold">más rápido de lo programado</span>.
+          </p>
+          {(estado?.temperatura ?? 0) > 0 && (
+            <p className="text-sm mb-2">
+              Temperatura actual:{' '}
+              <span className="text-orange-400 font-bold">{Math.round(estado!.temperatura)}°C</span>
+            </p>
+          )}
+          <p className="text-neutral-400 text-sm mb-1">
+            Posible <span className="text-red-400 font-bold">contacto pegado</span> en el SSR o contactor.
+          </p>
+          <p className="text-white font-bold text-sm mb-6">Desconectá la alimentación del horno ahora.</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setModalRampaRapida(false); enviarCmd('detener') }}
+              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 transition"
+            >
+              Detener proceso
+            </button>
+            <button
+              onClick={() => { setModalRampaRapida(false); enviarCmd('cancelar_alarma') }}
+              className="flex-1 py-3 bg-red-700 hover:bg-red-800 rounded-xl text-white font-bold transition"
+            >
+              Ya desconecté
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

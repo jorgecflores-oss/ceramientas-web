@@ -91,3 +91,20 @@ export interface HorneadaFirmware {
   estado?: number
   motivo?: string
 }
+
+export type TipoNotif =
+  | 'corte_luz'
+  | 'rampa_rapida'
+  | 'rampa_lenta'
+  | 'etapa'
+  | 'meseta'
+  | 'fin'
+  | 'alarma_critica'
+  | 'alarma_exceso'
+  | 'detenido'
+
+export interface NotifMQTT {
+  tipo: TipoNotif
+  msg?: string
+  tempActual?: number
+}

@@ -1,6 +1,6 @@
 import mqtt, { type MqttClient } from 'mqtt'
 import { MQTT_BROKER, MQTT_USER, MQTT_PASS, STORAGE_KEYS } from '../utils/constants'
-import type { EstadoMQTT } from '../types/horno'
+import type { EstadoMQTT, NotifMQTT } from '../types/horno'
 
 type Pendiente = {
   resolve: (v: { status: number; data: unknown }) => void
@@ -12,7 +12,8 @@ const pendientes = new Map<string, Pendiente>()
 
 let client: MqttClient | null = null
 let conectado = false
-const subs = new Map<string, (data: EstadoMQTT) => void>()
+const subsEstado = new Map<string, (data: EstadoMQTT) => void>()
+const subsNotif  = new Map<string, (data: NotifMQTT) => void>()
 let descubrimientoHandler: ((topic: string) => void) | null = null
 
 export function iniciarMQTT() {
@@ -29,7 +30,8 @@ export function iniciarMQTT() {
   client.on('connect', () => {
     conectado = true
     console.log('[MQTT] conectado')
-    subs.forEach((_, topic) => client?.subscribe(topic))
+    subsEstado.forEach((_, topic) => client?.subscribe(topic))
+    subsNotif.forEach((_, topic) => client?.subscribe(topic))
     client?.subscribe('ceramientas/+/res', { qos: 1 })
   })
 
@@ -60,23 +62,36 @@ export function iniciarMQTT() {
       }
       return
     }
-    const cb = subs.get(topic)
-    if (!cb) return
-    try {
-      const data = JSON.parse(payload.toString())
-      cb(mapearEstado(data))
-    } catch (e) {
-      console.error('[MQTT] parse error', e)
+    const cbEstado = subsEstado.get(topic)
+    if (cbEstado) {
+      try { cbEstado(mapearEstado(JSON.parse(payload.toString()))) }
+      catch (e) { console.error('[MQTT] parse estado error', e) }
+      return
+    }
+    const cbNotif = subsNotif.get(topic)
+    if (cbNotif) {
+      try { cbNotif(JSON.parse(payload.toString()) as NotifMQTT) }
+      catch (e) { console.error('[MQTT] parse notif error', e) }
     }
   })
 }
 
 export function suscribirEstado(hornoId: string, cb: (data: EstadoMQTT) => void) {
   const topic = `ceramientas/${hornoId}/estado`
-  subs.set(topic, cb)
+  subsEstado.set(topic, cb)
   if (client && conectado) client.subscribe(topic)
   return () => {
-    subs.delete(topic)
+    subsEstado.delete(topic)
+    client?.unsubscribe(topic)
+  }
+}
+
+export function suscribirNotif(hornoId: string, cb: (data: NotifMQTT) => void) {
+  const topic = `ceramientas/${hornoId}/notif`
+  subsNotif.set(topic, cb)
+  if (client && conectado) client.subscribe(topic)
+  return () => {
+    subsNotif.delete(topic)
     client?.unsubscribe(topic)
   }
 }
