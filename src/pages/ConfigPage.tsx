@@ -8,7 +8,11 @@ import { AP_IP } from '../utils/constants'
 type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
 type WifiStep = null | 'detectando' | 'listo' | 'instrucciones'
 
-export function ConfigPage() {
+interface Props {
+  onAgregarHorno: () => void
+}
+
+export function ConfigPage({ onAgregarHorno }: Props) {
   const horno = useHornoStore(s => s.hornoActivo)
   const pass = useHornoStore(s => s.password)
   const quitarHorno = useHornoStore(s => s.quitarHorno)
@@ -334,13 +338,13 @@ export function ConfigPage() {
 
             <div className="space-y-2">
               <button
-                disabled
-                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 opacity-50 cursor-not-allowed"
+                onClick={onAgregarHorno}
+                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 hover:bg-neutral-800 rounded-xl transition"
               >
-                <span className="text-2xl">🔍</span>
+                <span className="text-2xl">➕</span>
                 <div className="flex-1 text-left">
-                  <p className="text-white text-sm font-semibold">Buscar hornos</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">Re-descubrir hornos en la red local</p>
+                  <p className="text-white text-sm font-semibold">Agregar horno</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">Vincular un nuevo controlador</p>
                 </div>
                 <span className="text-neutral-600">›</span>
               </button>

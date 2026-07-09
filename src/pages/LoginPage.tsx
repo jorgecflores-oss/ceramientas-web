@@ -3,7 +3,11 @@ import { useHornoStore } from '../store/hornoStore'
 import { descubrirHornosMQTT } from '../services/mqttService'
 import { verificarHornoMQTT } from '../services/hornoService'
 
-export function LoginPage() {
+interface Props {
+  onVolver?: () => void
+}
+
+export function LoginPage({ onVolver }: Props) {
   const hornos = useHornoStore((s) => s.hornos)
   const agregarHorno = useHornoStore((s) => s.agregarHorno)
   const setHornoActivo = useHornoStore((s) => s.setHornoActivo)
@@ -47,6 +51,7 @@ export function LoginPage() {
         version: result.version,
       }, passDerivada)
       setHornoActivo(hornoId)
+      onVolver?.()
     } catch {
       setError('Error vinculando horno')
     } finally {
@@ -58,7 +63,15 @@ export function LoginPage() {
     <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-6">
 
-        <div className="text-center">
+        <div className="text-center relative">
+          {onVolver && (
+            <button
+              onClick={onVolver}
+              className="absolute left-0 top-1 text-neutral-400 hover:text-white text-sm transition"
+            >
+              ← Volver
+            </button>
+          )}
           <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
           <h1 className="text-2xl font-bold tracking-widest mt-1">
             {hornos.length > 0 ? 'AGREGAR HORNO' : 'CONECTAR'}
@@ -71,7 +84,7 @@ export function LoginPage() {
             {hornos.map(h => (
               <button
                 key={h.hornoId}
-                onClick={() => setHornoActivo(h.hornoId)}
+                onClick={() => { setHornoActivo(h.hornoId); onVolver?.() }}
                 className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-800 hover:border-orange-500 rounded-lg transition"
               >
                 <div className="text-left">

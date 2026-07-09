@@ -24,14 +24,16 @@ function App() {
     return () => clearInterval(interval)
   }, [loadFromStorage, setMqttConectado])
 
-  if (!horno) return <LoginPage />
+  if (!horno || page === 'login') {
+    return <LoginPage onVolver={horno ? () => setPage('horno') : undefined} />
+  }
 
   return (
     <>
       {page === 'horno' && <HornoPage />}
       {page === 'programas' && <ProgramasPage />}
       {page === 'historial' && <HistorialPage />}
-      {page === 'config' && <ConfigPage />}
+      {page === 'config' && <ConfigPage onAgregarHorno={() => setPage('login')} />}
       <BottomNav active={page} onChange={setPage} />
     </>
   )

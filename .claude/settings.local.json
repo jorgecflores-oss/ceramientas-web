@@ -8,7 +8,24 @@
       "Bash(python3 *)",
       "Bash(git *)",
       "Bash(New-Item -ItemType Directory -Force \"C:\\\\Users\\\\Jorge\\\\ceramientas-web\\\\.github\\\\workflows\")",
-      "Bash(Out-Null)"
+      "Bash(Out-Null)",
+      "Bash(Get-Item \"D:\\\\Jorge\\\\Documents\\\\Arduino\\\\Controlador_ESP32_V3_4_0\\\\build\\\\esp32.esp32.esp32\\\\Controlador_ESP32_V3_4_0.ino.bin\")",
+      "Bash(Select-Object Name, Length)",
+      "PowerShell(Get-Item \"D:\\\\Jorge\\\\Documents\\\\Arduino\\\\Controlador_ESP32_V3_4_0\\\\build\\\\esp32.esp32.esp32\\\\Controlador_ESP32_V3_4_0.ino.bin\" | Select-Object Name, @{N='KB';E={[math]::Round\\($_.Length/1KB,1\\)}})",
+      "PowerShell(Get-Item *)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\Jorge\\\\CeramientasApp\" -Directory | Where-Object { $_.Name -notin @\\('node_modules', '.expo', 'android', 'ios', '.git'\\) } | Select-Object Name)",
+      "Bash(grep -v \"^build$\")",
+      "Bash(awk '/^const char PAGINA_SETUP/,/^\\\\\\)HTML\"/' \"D:/Jorge/Documents/Arduino/Controlador_ESP32_V3_4_4/Controlador_ESP32_V3_4_4.ino\")",
+      "PowerShell(Get-ChildItem \"D:\\\\Jorge\\\\Documents\\\\Arduino\\\\\" | Where-Object { $_.Name -match \"V3_4\" } | Select-Object Name)",
+      "PowerShell(Copy-Item *)",
+      "Bash(Get-ChildItem \"D:\\\\Jorge\\\\Documents\\\\Arduino\\\\Controlador_ESP32_V3_4_0\\\\\" | Select-Object Name, Length; Write-Host \"---\"; Get-ChildItem \"D:\\\\Jorge\\\\Documents\\\\Arduino\\\\Controlador_ESP32_V3_4_4\\\\\")",
+      "Read(//c/Users/Jorge/CeramientasApp/**)",
+      "Bash(dir \"C:\\\\Users\\\\Jorge\\\\CeramientasApp\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Jorge\\\\CeramientasApp\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Jorge\\\\CeramientasApp\" -Recurse -Directory -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { $_.FullName })",
+      "Bash(dir /b \"C:\\\\\\\\Users\\\\\\\\Jorge\\\\\\\\CeramientasApp\")",
+      "Bash(powershell *)"
     ]
   }
 }

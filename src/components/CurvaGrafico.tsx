@@ -43,6 +43,7 @@ function CartelFijo({ xAhora, xMax, tempReal, tempTeorica }: {
       className="absolute top-8 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs pointer-events-none"
       style={{ left: `${porcentajeX}%`, transform: 'translateX(-50%)' }}
     >
+      <div className="text-neutral-500 mb-1 font-bold tracking-wider">{formatearTickX(Math.round(xAhora))}</div>
       <div className="text-orange-400">Real: {Math.round(tempReal)}°C</div>
       <div className="text-blue-300">Teórica: {Math.round(tempTeorica)}°C</div>
       <div className={`font-semibold ${delta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -65,14 +66,13 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
 
   useEffect(() => {
     if (!cartelVisible) return
-    const timer = setTimeout(() => setCartelVisible(false), 5000)
+    const timer = setTimeout(() => setCartelVisible(false), 6000)
     return () => clearTimeout(timer)
   }, [cartelVisible])
 
-  const mostrarCartel = () => {
-    setCartelVisible(false)
-    setTimeout(() => setCartelVisible(true), 0)
-  }
+  // Toggle: abre si cerrado, cierra si abierto. Solo onClick — evita doble disparo
+  // que ocurría al tener onTouchStart + onClick juntos (ambos fires en el mismo tap).
+  const mostrarCartel = () => setCartelVisible(v => !v)
 
   const hayTeorica = puntosTeoricos && puntosTeoricos.length > 1
   const modoSnapshot = !hayTeorica && !!snapshot && snapshot.puntosTeoricos.length > 1
@@ -84,7 +84,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
   const xAhoraEf: number | undefined = modoSnapshot ? snapshot!.xAhoraFinal : xAhora
   const hayTeoricoEf = teoricoEf && teoricoEf.length > 1
 
-  if (puntosEf.length === 0) {
+  if (puntosEf.length === 0 && !hayTeoricoEf) {
     return (
       <div className="flex items-center justify-center h-[320px] text-neutral-500 text-sm">
         Sin datos aún
@@ -111,7 +111,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       }))
     : undefined
 
-  const maxTempReal = Math.max(...puntosEf.map((p) => p.temp))
+  const maxTempReal = puntosEf.length > 0 ? Math.max(...puntosEf.map((p) => p.temp)) : 0
   const maxTempTeorico = hayTeoricoEf
     ? Math.max(...teoricoEf!.map((p) => p.temp))
     : 0
@@ -155,7 +155,6 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       <div
         className="relative w-full h-[380px]"
         onClick={mostrarCartel}
-        onTouchStart={mostrarCartel}
       >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 10, right: 20, left: 5, bottom: 25 }}>
@@ -213,7 +212,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
           )}
         </LineChart>
       </ResponsiveContainer>
-      {hayTeoricoEf && xAhoraEf !== undefined && cartelVisible && (
+      {hayTeoricoEf && xAhoraEf !== undefined && cartelVisible && puntosEf.length > 0 && (
         <CartelFijo
           xAhora={xAhoraEf}
           xMax={xMax}

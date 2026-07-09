@@ -12,7 +12,7 @@ export type EstadoHorno =
   | 'error'
   | 'sin datos'
 
-export type Page = 'horno' | 'programas' | 'historial' | 'config'
+export type Page = 'horno' | 'programas' | 'historial' | 'config' | 'login'
 
 export interface Horno {
   hornoId: string

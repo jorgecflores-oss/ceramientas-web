@@ -69,20 +69,25 @@ Password = últimos 6 hex MAC.
 
 ## Fases desarrollo
 
-Fase 1 (actual): paridad mínima
+Fase 1: paridad mínima ✅ COMPLETA
 - [x] Login IP + password
 - [x] HornoPage con temperatura real time
 - [x] Botón PARAR
 - [x] Cache IP localStorage
-- [ ] Curva SVG (Recharts)
-- [ ] Lista programas
-- [ ] Historial últimos 30
-- [ ] Config básica
+- [x] Curva SVG (Recharts) — real + teórica superpuesta
+- [x] Lista programas + ejecutar
+- [x] Historial últimos 30 + borrar individual/todo
+- [x] Config básica (potencia, factura, consumo, nombre)
 
-Fase 2: interacción completa
-- [ ] Editar programas
-- [ ] Recuperación corte luz
-- [ ] Multi-horno
+Fase 2: interacción completa (en curso)
+- [x] OTA desde webapp (ConfigPage — polling real /ota/status)
+- [x] Configurar WiFi (abre PAGINA_SETUP firmware en nueva pestaña)
+- [x] Editar tempFinal de programas (inline, todos los slots)
+- [x] Editar pasos de programas custom (idx ≥ 4, modal)
+- [x] Borrar programas custom (idx ≥ 4, con confirmación)
+- [x] Crear programas nuevos (modal nombre + pasos, slot libre idx 4-23)
+- [x] Recuperación corte luz (UI) — banner + modal continuar/detener, cooldown 30s
+- [x] Multi-horno — SelectorHorno + store completo; login page acepta onVolver; ConfigPage con botón "Agregar horno"
 
 Fase 3: push
 - [ ] Web Push VAPID
@@ -112,6 +117,59 @@ PWA debe funcionar 3 escenarios:
 
 - Init: Vite + React + TS + Tailwind + MQTT + Zustand + Recharts
 - Feat: LoginPage + HornoPage + servicios + store
+- Feat: ProgramasPage, HistorialPage, ConfigPage, BottomNav, CurvaGrafico
+- Feat: curva teórica superpuesta, SelectorHorno, multi-horno store
+- Feat: PWA installable con Service Worker (vite-plugin-pwa)
+- Feat: iconos PWA
+- Feat: LED tercer estado Local + descubrimiento MQTT + guard payload vacío
+- Feat (2026-07-09): OTA desde webapp — postOTA, getOTAStatus, modal polling real
+- Feat (2026-07-09): Configurar WiFi — detecta AP, abre PAGINA_SETUP en nueva pestaña
+- Feat (2026-07-09): Editar tempFinal inline + editar pasos (modal) + borrar programas custom
+- Feat (2026-07-09): Multi-horno — LoginPage acepta onVolver, ConfigPage con "Agregar horno", Page type incluye 'login'
+- Fix (2026-07-09): CurvaGrafico — muestra curva teórica desde el arranque aunque historialTemp esté vacío
+
+## Notas arquitectura relevantes
+
+### OTA (ConfigPage)
+- `postOTA()` en hornoService.ts: HTTP-only (no MQTT fallback), con retry 401.
+- `getOTAStatus()`: usa `resolverCachedIP()` (sin probe AP) para no agregar 500ms por poll.
+- Polling cada 2s. Si 4 polls sin `enProgreso=true` → no hay update. Si deja de responder tras `enProgreso=true` → reiniciando → done.
+
+### Configurar WiFi (ConfigPage)
+- SSID AP firmware: `CERAMIENTAS_` + últimos 4 chars de `hornoId`. Password: `ceramientas`.
+- La PAGINA_SETUP está en `GET /` del firmware (no en `/wifi`).
+- `GET /wifi` retorna JSON con estado de conexión.
+- Flujo: probe AP 800ms → si responde abre `http://192.168.4.1/` → sino LAN IP cacheada → sino instrucciones manuales.
+
+### Edición programas (ProgramasPage)
+- Predefinidos (idx 0-3): solo editar tempFinal → POST /programas/{idx} con `{ tempFinal }`.
+- Custom (idx 4-23): editar tempFinal + editar pasos + borrar → DELETE /programas/{idx}.
+- Velocidad almacenada en firmware como °C/min × 10. UI muestra y edita en °C/min (float), convierte con `× 10` al guardar.
+- Tras guardar: actualiza Zustand store + localStorage (PROGRAMAS_CACHE) sin refetch.
+
+### CurvaGrafico (CurvaGrafico.tsx)
+- Guard cambiado a `puntosEf.length === 0 && !hayTeoricoEf`: si hay curva teórica calculada pero aún no llegó ningún dato real (programa recién arrancado o app abierta mid-process), muestra el gráfico con solo la curva teórica en lugar de "Sin datos aún".
+- `maxTempReal` protegido con `puntosEf.length > 0 ? ... : 0` para evitar `Math.max()` vacío.
+- `CartelFijo` (tooltip) no se muestra cuando `puntosEf.length === 0` (evita "Real: 0°C").
+
+### Notificaciones MQTT tipadas (HornoPage)
+- `suscribirNotif` conectado al topic `ceramientas/{id}/notif`.
+- `corte_luz` → modal continuar/detener con cooldown 30s.
+- `rampa_rapida` → modal alerta con comando `cancelar_alarma`, cooldown Infinity.
+- `etapa`, `meseta`, `fin`, `alarma_critica`, `alarma_exceso`, `rampa_lenta` → toasts tipados (5s).
+- Corte de luz también se detecta por campo `cl` del estado MQTT (sin necesidad de notif).
+
+## Pendientes
+
+### Funcionalidad
+
+- **Web Push VAPID** (Fase 3) — notificaciones push reales al cerrar la app.
+- **Cloudflare Worker** (Fase 3) — intermediario para push.
+
+### Técnico
+
+- **Bundle size** — Recharts + MQTT.js son las causas principales. Solución: dynamic import de Recharts (`React.lazy`) para code-split. No es bloqueante pero afecta TTI en conexiones lentas.
+- **Deploy** — actualmente manual (`git push` → GitHub Actions). El workflow ya está en `.github/workflows/deploy.yml`. URL: `https://jorgecflores-oss.github.io/ceramientas-web/`.
 
 ## Repo
 
