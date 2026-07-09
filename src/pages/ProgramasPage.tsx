@@ -47,6 +47,10 @@ export function ProgramasPage() {
   const [editPasos, setEditPasos] = useState<{ idx: number; pasos: Paso[] } | null>(null)
   const [guardandoPasos, setGuardandoPasos] = useState(false)
 
+  // Modal nuevo programa
+  const [nuevoPrograma, setNuevoPrograma] = useState<{ nombre: string; pasos: Paso[] } | null>(null)
+  const [guardandoNuevo, setGuardandoNuevo] = useState(false)
+
   useEffect(() => {
     if (!horno?.hornoId) return
     if (programas.length > 0) return
@@ -56,6 +60,13 @@ export function ProgramasPage() {
       .catch(e => setError(String(e)))
       .finally(() => setCargando(false))
   }, [horno?.hornoId, programas.length, setProgramas])
+
+  function slotLibre(): number | null {
+    for (let i = 4; i <= 23; i++) {
+      if (!programas[i] || !tieneActivos(programas[i])) return i
+    }
+    return null
+  }
 
   function actualizarLocal(idx: number, cambios: Partial<Programa>) {
     const nuevos = programas.map((p, i) => i === idx ? { ...p, ...cambios } : p)
@@ -126,6 +137,52 @@ export function ProgramasPage() {
     }
   }
 
+  function editarNuevoPaso(pasoIdx: number, campo: keyof Paso, rawValor: string) {
+    if (!nuevoPrograma) return
+    const valor = parseFloat(rawValor)
+    const nuevoPaso = { ...nuevoPrograma.pasos[pasoIdx] }
+    if (campo === 'velocidad') {
+      nuevoPaso.velocidad = isNaN(valor) ? 0 : Math.round(valor * 10)
+    } else {
+      (nuevoPaso[campo] as number) = isNaN(valor) ? 0 : Math.round(valor)
+    }
+    setNuevoPrograma({ ...nuevoPrograma, pasos: nuevoPrograma.pasos.map((p, i) => i === pasoIdx ? nuevoPaso : p) })
+  }
+
+  function agregarNuevoPaso() {
+    if (!nuevoPrograma || nuevoPrograma.pasos.length >= 8) return
+    const ultimo = nuevoPrograma.pasos[nuevoPrograma.pasos.length - 1]
+    setNuevoPrograma({
+      ...nuevoPrograma,
+      pasos: [...nuevoPrograma.pasos, { velocidad: ultimo.velocidad, temperatura: 0, tiempo: 0 }],
+    })
+  }
+
+  function quitarNuevoPaso(pasoIdx: number) {
+    if (!nuevoPrograma || nuevoPrograma.pasos.length <= 1) return
+    setNuevoPrograma({ ...nuevoPrograma, pasos: nuevoPrograma.pasos.filter((_, i) => i !== pasoIdx) })
+  }
+
+  async function guardarNuevo() {
+    if (!nuevoPrograma || !horno?.hornoId) return
+    const nombre = nuevoPrograma.nombre.trim()
+    if (!nombre) { alert('El nombre no puede estar vacío'); return }
+    const slot = slotLibre()
+    if (slot === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
+    const tempFinal = [...nuevoPrograma.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
+    setGuardandoNuevo(true)
+    try {
+      await postPrograma(horno.hornoId, slot, { nombre, pasos: nuevoPrograma.pasos, tempFinal })
+      const actualizados = await fetchProgramasOnce(horno.hornoId)
+      setProgramas(actualizados)
+      setNuevoPrograma(null)
+    } catch {
+      alert('Error guardando programa')
+    } finally {
+      setGuardandoNuevo(false)
+    }
+  }
+
   function editarPaso(pasoIdx: number, campo: keyof Paso, rawValor: string) {
     if (!editPasos) return
     const valor = parseFloat(rawValor)
@@ -155,8 +212,11 @@ export function ProgramasPage() {
             )}
           </div>
           <button
-            disabled
-            className="px-4 py-2 bg-orange-500 opacity-50 rounded-full text-sm font-semibold cursor-not-allowed"
+            onClick={() => {
+              if (slotLibre() === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
+              setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 10, temperatura: 600, tiempo: 0 }] })
+            }}
+            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-full text-sm font-semibold transition"
           >
             + Nuevo
           </button>
@@ -292,6 +352,104 @@ export function ProgramasPage() {
                 className="flex-1 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition"
               >
                 Borrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal nuevo programa */}
+      {nuevoPrograma !== null && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-neutral-900 rounded-2xl p-5 max-w-sm w-full border border-neutral-800 my-4">
+            <h3 className="font-bold text-lg mb-4">Nuevo programa</h3>
+
+            <div className="mb-4">
+              <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-1">Nombre</label>
+              <input
+                type="text"
+                value={nuevoPrograma.nombre}
+                onChange={e => setNuevoPrograma({ ...nuevoPrograma, nombre: e.target.value })}
+                placeholder="Ej: Bisque 980°C"
+                maxLength={20}
+                autoFocus
+                className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:border-orange-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="mb-5">
+              <div className="flex gap-2 text-xs text-neutral-500 uppercase tracking-wider mb-2 px-1">
+                <span className="w-6 shrink-0"></span>
+                <span className="flex-1">Vel °C/min</span>
+                <span className="flex-1">Temp °C</span>
+                <span className="flex-1">Tiempo min</span>
+                <span className="w-5 shrink-0"></span>
+              </div>
+
+              <div className="space-y-2">
+                {nuevoPrograma.pasos.map((paso, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-orange-500 text-xs font-bold w-6 shrink-0">P{i + 1}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={(paso.velocidad / 10).toFixed(1)}
+                      onChange={e => editarNuevoPaso(i, 'velocidad', e.target.value)}
+                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      max="1300"
+                      value={paso.temperatura || ''}
+                      placeholder="0"
+                      onChange={e => editarNuevoPaso(i, 'temperatura', e.target.value)}
+                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      value={paso.tiempo || ''}
+                      placeholder="0"
+                      onChange={e => editarNuevoPaso(i, 'tiempo', e.target.value)}
+                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                    />
+                    <button
+                      onClick={() => quitarNuevoPaso(i)}
+                      disabled={nuevoPrograma.pasos.length <= 1}
+                      className="w-5 shrink-0 text-neutral-500 hover:text-red-400 disabled:opacity-30 transition text-sm"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {nuevoPrograma.pasos.length < 8 && (
+                <button
+                  onClick={agregarNuevoPaso}
+                  className="mt-3 w-full py-1.5 border border-dashed border-neutral-700 hover:border-neutral-500 rounded-lg text-neutral-500 hover:text-neutral-300 text-sm transition"
+                >
+                  + Agregar paso
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setNuevoPrograma(null)}
+                disabled={guardandoNuevo}
+                className="flex-1 py-2.5 border border-neutral-700 rounded-xl text-neutral-400 text-sm hover:bg-neutral-800 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarNuevo}
+                disabled={guardandoNuevo}
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-xl font-semibold transition"
+              >
+                {guardandoNuevo ? 'Guardando...' : 'Crear'}
               </button>
             </div>
           </div>
