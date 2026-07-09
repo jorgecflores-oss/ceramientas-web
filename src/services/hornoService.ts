@@ -66,6 +66,18 @@ export async function postComando(hornoId: string, comando: string) {
   return (await hornoRequest(hornoId, 'comando', 'POST', JSON.stringify({ comando }))).data
 }
 
+export async function postPrograma(
+  hornoId: string,
+  idx: number,
+  data: { tempFinal?: number; nombre?: string; pasos?: import('../types/horno').Paso[] }
+) {
+  return (await hornoRequest(hornoId, `programas/${idx}`, 'POST', JSON.stringify(data))).data
+}
+
+export async function deletePrograma(hornoId: string, idx: number) {
+  return (await hornoRequest(hornoId, `programas/${idx}`, 'DELETE')).data
+}
+
 export async function postOTA(hornoId: string): Promise<{ ok: boolean; msg?: string }> {
   const ip = await resolverIP(hornoId)
   if (!ip) throw new Error('No se pudo encontrar el horno')
