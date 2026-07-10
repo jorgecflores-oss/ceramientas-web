@@ -201,24 +201,23 @@ export function HornoPage() {
 
   async function calcularYGuardarCurva(esNuevo: boolean) {
     if (!horno?.hornoId || !estado) return
+    // Capturar antes del await: tInicioReal y temp corresponden al momento de la transición
+    const tCapture    = Date.now()
+    const tempCapture = estado.temperatura
+    const etapaTotal  = estado.etapaTotal
+    const etapa       = estado.etapa
+    const tempObj     = estado.tempObj
     try {
       const progs = await fetchProgramasOnce(horno.hornoId)
       setProgramas(progs)
-      const match = matchPrograma(
-        progs,
-        estado.etapaTotal,
-        estado.etapa,
-        estado.tempObj
-      )
+      const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
       if (!match) return
-      const tInicioReal = Date.now()
       if (esNuevo) {
         resetHistorial()
-        const tempInicioReal = estado.temperatura
-        const puntos = calcularCurvaTeorica(match.pasos, tempInicioReal, tInicioReal)
-        setCurvaTeorica(match, puntos, tInicioReal, tempInicioReal)
+        const puntos = calcularCurvaTeorica(match.pasos, tempCapture, tCapture)
+        setCurvaTeorica(match, puntos, tCapture, tempCapture)
       } else {
-        const t0Virtual = calcularT0Virtual(match.pasos, estado.temperatura, tInicioReal, 20)
+        const t0Virtual = calcularT0Virtual(match.pasos, tempCapture, tCapture, 20)
         const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
         setCurvaTeorica(match, puntos, t0Virtual, 20)
       }

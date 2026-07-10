@@ -15,7 +15,11 @@ export function matchPrograma(
     const activos = p.pasos.filter(pasoActivo)
     if (activos.length !== etapaTotal) return false
     if (tempObjetivo > 0 && etapaIdx < activos.length) {
-      return activos[etapaIdx].temperatura === tempObjetivo
+      const esUltimoPaso = etapaIdx === activos.length - 1
+      const tempEfectiva = esUltimoPaso && (p.tempFinal ?? 0) > 0
+        ? p.tempFinal!
+        : activos[etapaIdx].temperatura
+      return tempEfectiva === tempObjetivo
     }
     return true
   })
