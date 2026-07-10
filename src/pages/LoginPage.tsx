@@ -17,6 +17,7 @@ export function LoginPage({ onVolver }: Props) {
   const [buscando, setBuscando] = useState(false)
   const [error, setError] = useState('')
   const [wifiNuevo, setWifiNuevo] = useState<null | 'buscando' | 'ok' | 'manual'>(null)
+  const [mostrarSinWifi, setMostrarSinWifi] = useState(false)
 
   async function configurarWifiNuevo() {
     setWifiNuevo('buscando')
@@ -114,29 +115,43 @@ export function LoginPage({ onVolver }: Props) {
         )}
 
         {onVolver && (
-          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-sm space-y-3">
-            <p className="text-neutral-300 font-semibold">Antes de agregar el horno:</p>
-            <ol className="text-neutral-400 text-xs space-y-1.5 list-decimal list-inside">
-              <li>El horno nuevo debe tener WiFi configurado y estar conectado a internet.</li>
-              <li>Si no lo configuraste aún, conectate a su red WiFi (<span className="font-mono text-neutral-200">CERAMIENTAS_XXXX</span>), luego tocá el botón de abajo.</li>
-              <li>Una vez configurado el WiFi del horno, volvé a tu red habitual y buscalo con el botón "Buscar hornos".</li>
-            </ol>
+          <div className="space-y-2">
+            <p className="text-xs text-neutral-400">
+              Si el horno ya tiene WiFi configurado, presioná <span className="text-white font-semibold">Buscar hornos</span> — no hace falta cambiar de red.
+            </p>
             <button
-              onClick={configurarWifiNuevo}
-              disabled={wifiNuevo === 'buscando'}
-              className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 rounded-lg text-sm font-semibold transition"
+              onClick={() => setMostrarSinWifi(!mostrarSinWifi)}
+              className="text-xs text-blue-400 hover:text-blue-300 transition underline"
             >
-              {wifiNuevo === 'buscando' ? 'Buscando horno en AP...' : 'Configurar WiFi del horno nuevo'}
+              {mostrarSinWifi ? 'Ocultar' : '¿El horno no tiene WiFi configurado aún?'}
             </button>
-            {wifiNuevo === 'ok' && (
-              <p className="text-xs text-green-400">
-                Página de configuración abierta. Ingresá las credenciales WiFi, guardá y esperá que el horno se reconecte. Luego buscalo aquí.
-              </p>
-            )}
-            {wifiNuevo === 'manual' && (
-              <p className="text-xs text-yellow-400">
-                No se detectó el horno en modo AP. Asegurate de estar conectado a la red <span className="font-mono">CERAMIENTAS_XXXX</span> e intentá de nuevo.
-              </p>
+            {mostrarSinWifi && (
+              <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-sm space-y-3 mt-1">
+                <p className="text-neutral-300 font-semibold text-xs uppercase tracking-wider">Configurar WiFi del horno nuevo</p>
+                <ol className="text-neutral-400 text-xs space-y-1.5 list-decimal list-inside">
+                  <li>Conectate a la red WiFi del horno: <span className="font-mono text-neutral-200">CERAMIENTAS_XXXX</span></li>
+                  <li>Tocá el botón de abajo para abrir la página de configuración.</li>
+                  <li>Ingresá las credenciales de tu WiFi y guardá.</li>
+                  <li>Volvé a tu red habitual y buscá el horno con "Buscar hornos".</li>
+                </ol>
+                <button
+                  onClick={configurarWifiNuevo}
+                  disabled={wifiNuevo === 'buscando'}
+                  className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 rounded-lg text-sm font-semibold transition"
+                >
+                  {wifiNuevo === 'buscando' ? 'Buscando horno en AP...' : 'Abrir página de configuración'}
+                </button>
+                {wifiNuevo === 'ok' && (
+                  <p className="text-xs text-green-400">
+                    Página abierta. Ingresá las credenciales WiFi, guardá y esperá que el horno se reconecte. Luego buscalo aquí.
+                  </p>
+                )}
+                {wifiNuevo === 'manual' && (
+                  <p className="text-xs text-yellow-400">
+                    No se detectó el horno en modo AP. Asegurate de estar conectado a <span className="font-mono">CERAMIENTAS_XXXX</span> e intentá de nuevo.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
