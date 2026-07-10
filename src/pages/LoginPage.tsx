@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { descubrirHornosMQTT } from '../services/mqttService'
 import { verificarHornoMQTT, probeAP } from '../services/hornoService'
@@ -15,9 +15,13 @@ export function LoginPage({ onVolver }: Props) {
   const [hornoIdInput, setHornoIdInput] = useState('')
   const [hornosDetectados, setHornosDetectados] = useState<string[]>([])
   const [buscando, setBuscando] = useState(false)
+  const [countdown, setCountdown] = useState(0)
   const [error, setError] = useState('')
   const [wifiNuevo, setWifiNuevo] = useState<null | 'buscando' | 'ok' | 'manual'>(null)
   const [mostrarSinWifi, setMostrarSinWifi] = useState(false)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => () => { if (countdownRef.current) clearInterval(countdownRef.current) }, [])
 
   async function configurarWifiNuevo() {
     setWifiNuevo('buscando')
@@ -34,12 +38,22 @@ export function LoginPage({ onVolver }: Props) {
     }
   }
 
+  const BUSQUEDA_MS = 12000
+
   async function buscarHornos() {
     setBuscando(true)
     setError('')
     setHornosDetectados([])
+    setCountdown(Math.round(BUSQUEDA_MS / 1000))
+    if (countdownRef.current) clearInterval(countdownRef.current)
+    countdownRef.current = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) { clearInterval(countdownRef.current!); return 0 }
+        return c - 1
+      })
+    }, 1000)
     try {
-      const encontrados = await descubrirHornosMQTT(5000)
+      const encontrados = await descubrirHornosMQTT(BUSQUEDA_MS)
       if (encontrados.length === 0) {
         setError('No se detectaron hornos. Verificá que el horno esté encendido y conectado a internet.')
       }
@@ -48,6 +62,8 @@ export function LoginPage({ onVolver }: Props) {
       setError('Error buscando hornos')
     } finally {
       setBuscando(false)
+      setCountdown(0)
+      if (countdownRef.current) clearInterval(countdownRef.current)
     }
   }
 
@@ -164,7 +180,7 @@ export function LoginPage({ onVolver }: Props) {
               disabled={buscando}
               className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg font-semibold transition"
             >
-              {buscando ? 'Buscando...' : 'Buscar hornos'}
+              {buscando ? `Buscando... ${countdown}s` : 'Buscar hornos'}
             </button>
 
             {hornosDetectados.length > 0 && (
