@@ -92,14 +92,22 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     )
   }
 
+  // Anclar t0 al inicio del programa: evita que datos de cochuras anteriores
+  // (cargados desde localStorage antes de que resetHistorial limpie la memoria)
+  // aparezcan a la izquierda de la curva teórica.
+  const t0 = hayTeoricoEf
+    ? Math.min(...teoricoEf!.map((p) => p.t))
+    : (puntosEf.length > 0 ? Math.min(...puntosEf.map((p) => p.t)) : 0)
+
+  const puntosEfFilt = hayTeoricoEf ? puntosEf.filter((p) => p.t >= t0) : puntosEf
+
   const tAll = [
-    ...puntosEf.map((p) => p.t),
+    ...puntosEfFilt.map((p) => p.t),
     ...(hayTeoricoEf ? teoricoEf!.map((p) => p.t) : []),
   ]
-  const t0 = Math.min(...tAll)
-  const xMaxOriginal = Math.floor((Math.max(...tAll) - t0) / 60000)
+  const xMaxOriginal = tAll.length > 0 ? Math.floor((Math.max(...tAll) - t0) / 60000) : 0
 
-  const data = puntosEf.map((p) => ({
+  const data = puntosEfFilt.map((p) => ({
     min: Math.floor((p.t - t0) / 60000),
     temp: p.temp,
   }))
@@ -111,7 +119,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       }))
     : undefined
 
-  const maxTempReal = puntosEf.length > 0 ? Math.max(...puntosEf.map((p) => p.temp)) : 0
+  const maxTempReal = puntosEfFilt.length > 0 ? Math.max(...puntosEfFilt.map((p) => p.temp)) : 0
   const maxTempTeorico = hayTeoricoEf
     ? Math.max(...teoricoEf!.map((p) => p.temp))
     : 0
@@ -130,7 +138,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     ? Math.max(xMaxOriginal, ticksX[ticksX.length - 1])
     : xMaxOriginal
 
-  const ultimaTempReal = puntosEf.length > 0 ? puntosEf[puntosEf.length - 1].temp : 0
+  const ultimaTempReal = puntosEfFilt.length > 0 ? puntosEfFilt[puntosEfFilt.length - 1].temp : 0
   const tempTeoricaEnXAhora = hayTeoricoEf && xAhoraEf !== undefined
     ? interpolarTemp(teoricoEf!, t0, xAhoraEf)
     : 0
@@ -212,7 +220,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
           )}
         </LineChart>
       </ResponsiveContainer>
-      {hayTeoricoEf && xAhoraEf !== undefined && cartelVisible && puntosEf.length > 0 && (
+      {hayTeoricoEf && xAhoraEf !== undefined && cartelVisible && puntosEfFilt.length > 0 && (
         <CartelFijo
           xAhora={xAhoraEf}
           xMax={xMax}
