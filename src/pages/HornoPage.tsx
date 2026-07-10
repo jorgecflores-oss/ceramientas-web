@@ -40,6 +40,7 @@ export function HornoPage() {
   const ultimoYMax = useHornoStore((s) => s.ultimoYMax)
   const snapshot = useHornoStore((s) => s.snapshot)
   const programaActivo = useHornoStore((s) => s.programaActivo)
+  const programas = useHornoStore((s) => s.programas)
 
   const estadoPrevioRef      = useRef<string | null>(null)
   const corteLuzCooldownRef  = useRef(0)
@@ -201,19 +202,17 @@ export function HornoPage() {
 
   async function calcularYGuardarCurva(esNuevo: boolean) {
     if (!horno?.hornoId || !estado) return
-    // Capturar antes del await: tInicioReal y temp corresponden al momento de la transición
+    const hornoId     = horno.hornoId
     const tCapture    = Date.now()
     const tempCapture = estado.temperatura
     const etapaTotal  = estado.etapaTotal
     const etapa       = estado.etapa
     const tempObj     = estado.tempObj
-    try {
-      const progs = await fetchProgramasOnce(horno.hornoId)
-      setProgramas(progs)
+
+    const aplicarCurva = (progs: typeof programas) => {
       const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
       if (!match) return
       if (esNuevo) {
-        resetHistorial()
         const puntos = calcularCurvaTeorica(match.pasos, tempCapture, tCapture)
         setCurvaTeorica(match, puntos, tCapture, tempCapture)
       } else {
@@ -221,6 +220,22 @@ export function HornoPage() {
         const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
         setCurvaTeorica(match, puntos, t0Virtual, 20)
       }
+    }
+
+    if (esNuevo) {
+      resetHistorial()
+      clearCurvaTeorica()
+      useHornoStore.getState().limpiarSnapshot(hornoId)
+    }
+
+    // Inmediato: usar cache en memoria, sin I/O
+    aplicarCurva(programas)
+
+    // Fresco: actualizar si los programas cambiaron (ej: tempFinal editado)
+    try {
+      const progs = await fetchProgramasOnce(hornoId)
+      setProgramas(progs)
+      aplicarCurva(progs)
     } catch (e) {
       console.error('[CURVA_TEORICA] error', e)
     }
