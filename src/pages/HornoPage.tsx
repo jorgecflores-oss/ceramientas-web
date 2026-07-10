@@ -238,16 +238,9 @@ export function HornoPage() {
     const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado'
 
     if (prev === null && actualActivo) {
-      if (puntosTeoricos.length > 0) {
-        estadoPrevioRef.current = estadoActual
-        return
-      }
+      // Siempre recalcular al arrancar: la curva almacenada puede ser de otro programa.
       calcularYGuardarCurva(false)
     } else if ((prev === 'idle' || prev === 'finalizado') && actualActivo) {
-      if (puntosTeoricos.length > 0) {
-        estadoPrevioRef.current = estadoActual
-        return
-      }
       calcularYGuardarCurva(true)
     } else if (prevEraActivo && actualInactivo) {
       clearCurvaTeorica()
