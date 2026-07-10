@@ -192,10 +192,13 @@ export async function hornoRequest(
       }
       if (body && method !== 'GET') opts.body = body
       const resp = await fetch(`http://${ip}/${path}`, opts)
-      const data = await resp.json()
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       return { status: resp.status, data, via: 'http' }
-    } catch {
-      // HTTP falló, cae a MQTT
+    } catch (e) {
+      // Errores HTTP del firmware (4xx/5xx): propagar, no intentar MQTT
+      if (e instanceof Error && /^HTTP \d{3}/.test(e.message)) throw e
+      // Error de red/timeout: caer a MQTT
     }
   }
 

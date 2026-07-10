@@ -9,6 +9,19 @@ import type { Programa, Paso } from '../types/horno'
 const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
 const tieneActivos = (prog: Programa) => prog.pasos.some(pasoActivo)
 
+// Aplica tempFinal al último paso activo, igual que matchPrograma.
+function pasosEfectivos(prog: Programa): Paso[] {
+  const activos = prog.pasos.filter(pasoActivo)
+  if ((prog.tempFinal ?? 0) > 0 && activos.length > 0) {
+    const lastActivo = activos[activos.length - 1]
+    const lastIdx = prog.pasos.lastIndexOf(lastActivo)
+    const result = [...prog.pasos]
+    result[lastIdx] = { ...result[lastIdx], temperatura: prog.tempFinal! }
+    return result
+  }
+  return prog.pasos
+}
+
 function duracionTotal(pasos: Paso[]): string {
   let totalMin = 0
   let tempActual = 20
@@ -170,8 +183,9 @@ export function ProgramasPage() {
     setGuardandoNuevo(true)
     try {
       await postPrograma(horno.hornoId, slot, { nombre, pasos: pasosParaFirmware, tempFinal })
-      const actualizados = await fetchProgramasOnce(horno.hornoId)
-      setProgramas(actualizados)
+      // Actualización local optimista — no refetchear: el firmware puede tardar en
+      // escribir la EEPROM y devolver el programa viejo si se consulta de inmediato.
+      actualizarLocal(slot, { nombre, tipo: 1, pasos: pasosParaFirmware, tempFinal })
       setNuevoPrograma(null)
     } catch {
       alert('Error guardando programa')
@@ -243,7 +257,7 @@ export function ProgramasPage() {
                   <div className="flex-1 min-w-0 pr-2">
                     <h3 className="font-bold text-lg truncate">{p.nombre}</h3>
                     <span className={`inline-block px-2 py-0.5 text-xs rounded-full mt-1 ${badgeColor}`}>
-                      {badgeLabel} · {duracionTotal(p.pasos)}
+                      {badgeLabel} · {duracionTotal(pasosEfectivos(p))}
                     </span>
                   </div>
 
@@ -307,7 +321,7 @@ export function ProgramasPage() {
                 </div>
 
                 <div className="space-y-1 mb-3 mt-3 border-t border-neutral-800 pt-3">
-                  {p.pasos.filter(pasoActivo).map((paso, i) => (
+                  {pasosEfectivos(p).filter(pasoActivo).map((paso, i) => (
                     <div key={i} className="text-sm flex gap-2 text-neutral-300">
                       <span className="text-orange-500 font-semibold w-6">P{i + 1}</span>
                       <span>↑ {formatVel(paso.velocidad)}</span>
