@@ -59,6 +59,7 @@ interface HornoState {
   setMqttConectado: (c: boolean) => void
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
   pushTemp: (temp: number) => void
+  flushHistorial: () => void
   resetHistorial: () => void
   setProgramas: (p: Programa[]) => void
   setCurvaTeorica: (programa: Programa, puntos: PuntoCurva[], tInicio: number, tempInicio: number) => void
@@ -301,9 +302,27 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     }, 2000)
   },
 
+  flushHistorial: () => {
+    const id = get().hornoActivoId
+    if (!id) return
+    if (debounceTimers[id]) {
+      clearTimeout(debounceTimers[id])
+      debounceTimers[id] = undefined as any
+    }
+    const nuevo = get().historialTemps[id] ?? []
+    if (nuevo.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.CURVA(id), JSON.stringify(nuevo))
+      } catch (e) {
+        console.error('[flushHistorial]', e)
+      }
+    }
+  },
+
   resetHistorial: () => {
     const id = get().hornoActivoId
     if (!id) return
+    try { localStorage.removeItem(STORAGE_KEYS.CURVA(id)) } catch {}
     const historialTemps = { ...get().historialTemps, [id]: [] }
     set({ historialTemps, historialTemp: [] })
   },

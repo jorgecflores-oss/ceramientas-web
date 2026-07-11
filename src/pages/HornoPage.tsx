@@ -207,7 +207,13 @@ export function HornoPage() {
     const tempCapture = estado.temperatura
     const etapaTotal  = estado.etapaTotal
     const etapa       = estado.etapa
-    const tempObj     = estado.tempObj
+    let tempObj       = estado.tempObj
+
+    if (tempObj <= 0) {
+      await new Promise(resolve => setTimeout(resolve, 2500))
+      const fresco = useHornoStore.getState().estado
+      if (fresco) tempObj = fresco.tempObj
+    }
 
     const aplicarCurva = (progs: typeof programas) => {
       const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
@@ -258,6 +264,7 @@ export function HornoPage() {
       calcularYGuardarCurva(true)
     } else if (prevEraActivo && actualInactivo) {
       clearCurvaTeorica()
+      useHornoStore.getState().flushHistorial()
     } else if (prev === null && actualInactivo) {
       // App recargó con el horno ya detenido: guardar snapshot de la última horneada y limpiar
       clearCurvaTeorica()
