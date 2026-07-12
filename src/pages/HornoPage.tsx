@@ -258,7 +258,23 @@ export function HornoPage() {
     const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado'
 
     if (prev === null && actualActivo) {
-      // Siempre recalcular al arrancar: la curva almacenada puede ser de otro programa.
+      // App abrió con proceso corriendo. Validar si el historial en memoria corresponde
+      // al proceso actual antes de recalcular la curva teórica.
+      const procesoMs = ((estado?.horas ?? 0) * 60 + (estado?.minutos ?? 0)) * 60000
+      if (procesoMs === 0) {
+        // Proceso recién iniciado: el historial en storage es de la horneada anterior.
+        resetHistorial()
+        if (hornoId) useHornoStore.getState().limpiarSnapshot(hornoId)
+      } else if (hornoId) {
+        // Mid-process: verificar si el último punto guardado cae dentro de la ventana del proceso.
+        const histActual = useHornoStore.getState().historialTemps[hornoId] ?? []
+        if (histActual.length > 0) {
+          const cutoffT = Date.now() - procesoMs - 5 * 60000
+          if (histActual[histActual.length - 1].t < cutoffT) {
+            resetHistorial()
+          }
+        }
+      }
       calcularYGuardarCurva(false)
     } else if ((prev === 'idle' || prev === 'finalizado') && actualActivo) {
       calcularYGuardarCurva(true)
