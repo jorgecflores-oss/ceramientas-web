@@ -167,8 +167,7 @@ export function LoginPage({ onVolver }: Props) {
           </div>
         )}
 
-        {onVolver && (
-          <div className="space-y-2">
+        <div className="space-y-2">
             <p className="text-xs text-neutral-400">
               Si el horno ya tiene WiFi configurado, presioná <span className="text-white font-semibold">Buscar hornos</span> — no hace falta cambiar de red.
             </p>
@@ -235,7 +234,6 @@ export function LoginPage({ onVolver }: Props) {
               </div>
             )}
           </div>
-        )}
 
         <div className={hornos.length > 0 ? 'border-t border-neutral-800 pt-4' : ''}>
           <div className="space-y-3">
