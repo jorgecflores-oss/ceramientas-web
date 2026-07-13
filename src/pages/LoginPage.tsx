@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { descubrirHornosMQTT } from '../services/mqttService'
-import { verificarHornoMQTT, probeAP } from '../services/hornoService'
+import { verificarHornoMQTT, probeAP, getInfo } from '../services/hornoService'
 import { feedbackBoton } from '../utils/feedback'
+import { AP_IP } from '../utils/constants'
+import type { InfoHorno } from '../types/horno'
 
 interface Props {
   onVolver?: () => void
@@ -20,6 +22,9 @@ export function LoginPage({ onVolver }: Props) {
   const [error, setError] = useState('')
   const [wifiNuevo, setWifiNuevo] = useState<null | 'buscando' | 'ok' | 'manual'>(null)
   const [mostrarSinWifi, setMostrarSinWifi] = useState(false)
+  const [detectandoAP, setDetectandoAP] = useState(false)
+  const [hornoDetectadoAP, setHornoDetectadoAP] = useState<InfoHorno | null>(null)
+  const [errorAP, setErrorAP] = useState('')
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => () => { if (countdownRef.current) clearInterval(countdownRef.current) }, [])
@@ -38,6 +43,34 @@ export function LoginPage({ onVolver }: Props) {
     } catch {
       setWifiNuevo('manual')
     }
+  }
+
+  async function detectarHornoAP() {
+    feedbackBoton()
+    setDetectandoAP(true)
+    setErrorAP('')
+    setHornoDetectadoAP(null)
+    try {
+      const info = await getInfo(AP_IP)
+      setHornoDetectadoAP(info)
+    } catch {
+      setErrorAP('No se detectó horno. Conectate a la red WiFi CERAMIENTAS_XXXX del horno e intentá de nuevo.')
+    } finally {
+      setDetectandoAP(false)
+    }
+  }
+
+  function vincularDetectadoAP() {
+    if (!hornoDetectadoAP) return
+    feedbackBoton()
+    const passDerivada = hornoDetectadoAP.hornoId.slice(-6).toLowerCase()
+    agregarHorno({
+      hornoId: hornoDetectadoAP.hornoId,
+      nombre: hornoDetectadoAP.nombre,
+      version: hornoDetectadoAP.version,
+    }, passDerivada)
+    setHornoActivo(hornoDetectadoAP.hornoId)
+    onVolver?.()
   }
 
   const BUSQUEDA_MS = 12000
@@ -143,34 +176,62 @@ export function LoginPage({ onVolver }: Props) {
               onClick={() => setMostrarSinWifi(!mostrarSinWifi)}
               className="text-xs text-blue-400 hover:text-blue-300 transition underline"
             >
-              {mostrarSinWifi ? 'Ocultar' : '¿El horno no tiene WiFi configurado aún?'}
+              {mostrarSinWifi ? 'Ocultar' : '¿No lo encontrás? Conectate directo al horno'}
             </button>
             {mostrarSinWifi && (
               <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-sm space-y-3 mt-1">
-                <p className="text-neutral-300 font-semibold text-xs uppercase tracking-wider">Configurar WiFi del horno nuevo</p>
+                <p className="text-neutral-300 font-semibold text-xs uppercase tracking-wider">Conexión directa</p>
                 <ol className="text-neutral-400 text-xs space-y-1.5 list-decimal list-inside">
                   <li>Conectate a la red WiFi del horno: <span className="font-mono text-neutral-200">CERAMIENTAS_XXXX</span></li>
-                  <li>Tocá el botón de abajo para abrir la página de configuración.</li>
-                  <li>Ingresá las credenciales de tu WiFi y guardá.</li>
-                  <li>Volvé a tu red habitual y buscá el horno con "Buscar hornos".</li>
+                  <li>Tocá "Detectar horno conectado" abajo.</li>
+                  <li>Confirmá vincular — no hace falta escribir ningún ID.</li>
                 </ol>
+
                 <button
-                  onClick={configurarWifiNuevo}
-                  disabled={wifiNuevo === 'buscando'}
-                  className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 rounded-lg text-sm font-semibold transition active:scale-95 duration-75"
+                  onClick={detectarHornoAP}
+                  disabled={detectandoAP}
+                  className="w-full py-2.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 rounded-lg text-sm font-semibold transition active:scale-95 duration-75"
                 >
-                  {wifiNuevo === 'buscando' ? 'Buscando horno en AP...' : 'Abrir página de configuración'}
+                  {detectandoAP ? 'Buscando...' : 'Detectar horno conectado'}
                 </button>
-                {wifiNuevo === 'ok' && (
-                  <p className="text-xs text-green-400">
-                    Página abierta. Ingresá las credenciales WiFi, guardá y esperá que el horno se reconecte. Luego buscalo aquí.
-                  </p>
+
+                {hornoDetectadoAP && (
+                  <div className="bg-neutral-800 border border-orange-600 rounded-lg p-3 flex justify-between items-center">
+                    <div>
+                      <p className="text-white font-semibold text-sm">{hornoDetectadoAP.nombre}</p>
+                      <p className="text-xs text-neutral-400 font-mono">{hornoDetectadoAP.hornoId.slice(-6)}</p>
+                    </div>
+                    <button
+                      onClick={vincularDetectadoAP}
+                      className="px-3 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg text-xs font-semibold transition active:scale-95 duration-75"
+                    >
+                      Vincular
+                    </button>
+                  </div>
                 )}
-                {wifiNuevo === 'manual' && (
-                  <p className="text-xs text-yellow-400">
-                    No se detectó el horno en modo AP. Asegurate de estar conectado a <span className="font-mono">CERAMIENTAS_XXXX</span> e intentá de nuevo.
-                  </p>
-                )}
+
+                {errorAP && <p className="text-xs text-red-400">{errorAP}</p>}
+
+                <div className="border-t border-neutral-800 pt-3">
+                  <p className="text-neutral-300 font-semibold text-xs uppercase tracking-wider mb-2">¿Horno nuevo, sin WiFi de casa?</p>
+                  <button
+                    onClick={configurarWifiNuevo}
+                    disabled={wifiNuevo === 'buscando'}
+                    className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 rounded-lg text-sm font-semibold transition active:scale-95 duration-75"
+                  >
+                    {wifiNuevo === 'buscando' ? 'Buscando horno en AP...' : 'Configurarle WiFi de casa'}
+                  </button>
+                  {wifiNuevo === 'ok' && (
+                    <p className="text-xs text-green-400 mt-2">
+                      Página abierta. Ingresá las credenciales WiFi y guardá. Después volvé acá y tocá "Detectar horno conectado" o vinculalo ya y esperá que aparezca Online.
+                    </p>
+                  )}
+                  {wifiNuevo === 'manual' && (
+                    <p className="text-xs text-yellow-400 mt-2">
+                      No se detectó el horno en modo AP. Asegurate de estar conectado a <span className="font-mono">CERAMIENTAS_XXXX</span> e intentá de nuevo.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
