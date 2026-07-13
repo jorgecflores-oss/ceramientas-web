@@ -25,7 +25,10 @@ function App() {
   }, [loadFromStorage, setMqttConectado])
 
   if (!horno || page === 'login') {
-    return <LoginPage onVolver={horno ? () => setPage('horno') : undefined} />
+    return <LoginPage
+      onVolver={horno ? () => setPage('horno') : undefined}
+      onVinculadoSinInternet={() => setPage('config')}
+    />
   }
 
   return (

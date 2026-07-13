@@ -58,7 +58,7 @@ export function ProgramasPage() {
   const [confirmarBorrar, setConfirmarBorrar] = useState<number | null>(null)
 
   // Modal edición pasos (solo programas custom idx >= 4)
-  const [editPasos, setEditPasos] = useState<{ idx: number; pasos: Paso[] } | null>(null)
+  const [editPasos, setEditPasos] = useState<{ idx: number; nombre: string; pasos: Paso[] } | null>(null)
   const [guardandoPasos, setGuardandoPasos] = useState(false)
 
   // Modal nuevo programa
@@ -142,11 +142,14 @@ export function ProgramasPage() {
 
   async function guardarPasos() {
     if (!editPasos || !horno?.hornoId) return
+    const nombre = editPasos.nombre.trim()
+    if (!nombre) { alert('El nombre no puede estar vacío'); return }
+    const tempFinal = [...editPasos.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
     feedbackBoton()
     setGuardandoPasos(true)
     try {
-      await postPrograma(horno.hornoId, editPasos.idx, { pasos: editPasos.pasos })
-      actualizarLocal(editPasos.idx, { pasos: editPasos.pasos })
+      await postPrograma(horno.hornoId, editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
+      actualizarLocal(editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
       setEditPasos(null)
     } catch {
       alert('Error guardando pasos')
@@ -269,51 +272,52 @@ export function ProgramasPage() {
 
                   <div className="text-right shrink-0">
                     <p className="text-xs text-neutral-400 mb-1">Temp final</p>
-                    {editandoEsteTF ? (
-                      <div className="flex items-center gap-1 justify-end">
-                        <input
-                          type="number"
-                          value={editTF.valor}
-                          onChange={e => setEditTF({ ...editTF, valor: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter') guardarTempFinal(); if (e.key === 'Escape') setEditTF(null) }}
-                          autoFocus
-                          className="w-20 px-2 py-1 bg-neutral-800 border border-orange-500 rounded text-white text-right text-sm focus:outline-none"
-                        />
-                        <span className="text-neutral-400 text-sm">°C</span>
+                    {esPredef ? (
+                      editandoEsteTF ? (
+                        <div className="flex items-center gap-1 justify-end">
+                          <input
+                            type="number"
+                            value={editTF.valor}
+                            onChange={e => setEditTF({ ...editTF, valor: e.target.value })}
+                            onKeyDown={e => { if (e.key === 'Enter') guardarTempFinal(); if (e.key === 'Escape') setEditTF(null) }}
+                            autoFocus
+                            className="w-20 px-2 py-1 bg-neutral-800 border border-orange-500 rounded text-white text-right text-sm focus:outline-none"
+                          />
+                          <span className="text-neutral-400 text-sm">°C</span>
+                          <button
+                            onClick={guardarTempFinal}
+                            disabled={guardandoTF}
+                            className="ml-1 px-2 py-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-xs font-bold"
+                          >
+                            {guardandoTF ? '...' : '✓'}
+                          </button>
+                          <button
+                            onClick={() => setEditTF(null)}
+                            disabled={guardandoTF}
+                            className="px-1 py-1 text-neutral-400 hover:text-white text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
                         <button
-                          onClick={guardarTempFinal}
-                          disabled={guardandoTF}
-                          className="ml-1 px-2 py-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-xs font-bold"
+                          onClick={() => setEditTF({ idx: p.idx, valor: String(tempFinalMostrar) })}
+                          className="text-orange-500 font-bold text-lg hover:text-orange-400 transition"
                         >
-                          {guardandoTF ? '...' : '✓'}
+                          {tempFinalMostrar}°C ✎
                         </button>
-                        <button
-                          onClick={() => setEditTF(null)}
-                          disabled={guardandoTF}
-                          className="px-1 py-1 text-neutral-400 hover:text-white text-xs"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                      )
                     ) : (
                       <button
-                        onClick={() => setEditTF({ idx: p.idx, valor: String(tempFinalMostrar) })}
+                        onClick={() => setEditPasos({ idx: p.idx, nombre: p.nombre, pasos: [...p.pasos] })}
                         className="text-orange-500 font-bold text-lg hover:text-orange-400 transition"
                       >
                         {tempFinalMostrar}°C ✎
                       </button>
                     )}
 
-                    <div className="flex gap-2 mt-2 justify-end">
-                      {!esPredef && (
-                        <button
-                          onClick={() => setEditPasos({ idx: p.idx, pasos: [...p.pasos] })}
-                          className="text-xs text-neutral-400 hover:text-white border border-neutral-700 hover:border-neutral-500 rounded px-2 py-1 transition"
-                        >
-                          ✎ Pasos
-                        </button>
-                      )}
-                      {!esPredef && (
+                    {!esPredef && (
+                      <div className="flex gap-2 mt-2 justify-end">
                         <button
                           onClick={() => setConfirmarBorrar(p.idx)}
                           className="text-neutral-500 hover:text-red-400 transition p-1"
@@ -321,8 +325,8 @@ export function ProgramasPage() {
                         >
                           🗑
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -478,8 +482,18 @@ export function ProgramasPage() {
       {editPasos !== null && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-neutral-900 rounded-2xl p-5 max-w-sm w-full border border-neutral-800 my-4">
-            <h3 className="font-bold text-lg mb-1">Editar pasos</h3>
-            <p className="text-xs text-neutral-500 mb-4">{programas[editPasos.idx]?.nombre}</p>
+            <h3 className="font-bold text-lg mb-4">Editar programa</h3>
+
+            <div className="mb-4">
+              <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-1">Nombre</label>
+              <input
+                type="text"
+                value={editPasos.nombre}
+                onChange={e => setEditPasos({ ...editPasos, nombre: e.target.value })}
+                maxLength={20}
+                className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white text-sm focus:border-orange-500 focus:outline-none"
+              />
+            </div>
 
             <div className="space-y-3 mb-5">
               {/* Encabezados */}
@@ -496,13 +510,30 @@ export function ProgramasPage() {
                   <div key={origIdx} className="grid grid-cols-3 gap-2 items-center">
                     <div className="flex items-center gap-1">
                       <span className="text-orange-500 text-xs font-bold w-5">P{numVisible}</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={(paso.velocidad / 10).toFixed(1)}
-                        onChange={e => editarPaso(origIdx, 'velocidad', e.target.value)}
-                        className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
-                      />
+                      <div className="flex items-center flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => editarPaso(origIdx, 'velocidad', Math.max(0, paso.velocidad / 10 - 0.5).toFixed(1))}
+                          className="shrink-0 w-7 h-7 flex items-center justify-center bg-neutral-800 border border-neutral-700 rounded-l text-neutral-300 hover:bg-neutral-700 active:scale-95 transition"
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          step="0.1"
+                          inputMode="decimal"
+                          value={(paso.velocidad / 10).toFixed(1)}
+                          onChange={e => editarPaso(origIdx, 'velocidad', e.target.value)}
+                          className="w-full min-w-0 px-1 py-1.5 bg-neutral-800 border-y border-neutral-700 text-white text-sm text-center focus:border-orange-500 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => editarPaso(origIdx, 'velocidad', (paso.velocidad / 10 + 0.5).toFixed(1))}
+                          className="shrink-0 w-7 h-7 flex items-center justify-center bg-neutral-800 border border-neutral-700 rounded-r text-neutral-300 hover:bg-neutral-700 active:scale-95 transition"
+                        >
+                          +
+                        </button>
+                      </div>
                     </div>
                     <input
                       type="number"

@@ -7,6 +7,21 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
+import type { PuntoCurva } from '../types/horno'
+
+function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
+  for (let i = 1; i < puntos.length; i++) {
+    const a = puntos[i - 1]
+    const b = puntos[i]
+    if (b.temp === a.temp && b.t > a.t && ahora >= a.t && ahora <= b.t) {
+      return {
+        restanteMin: Math.max(0, Math.round((b.t - ahora) / 60000)),
+        progreso: (ahora - a.t) / (b.t - a.t),
+      }
+    }
+  }
+  return null
+}
 
 function LedEstado({ activo, label, color }: { activo: boolean; label: string; color: string }) {
   return (
@@ -301,6 +316,7 @@ export function HornoPage() {
     estadoTxt === 'ejecutando' ||
     estadoTxt === 'rampa' ||
     estadoTxt === 'meseta'
+  const mesetaActual = estadoTxt === 'meseta' ? mesetaRestante(puntosTeoricos, Date.now()) : null
 
   const finalizadoOK =
     estadoTxt === 'finalizado' ||
@@ -363,13 +379,17 @@ export function HornoPage() {
               <div className="w-full bg-neutral-800 rounded-full h-1.5 overflow-hidden">
                 <div
                   className="h-full bg-orange-500 rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (temp / (tempObj || 100)) * 100)}%` }}
+                  style={{ width: `${Math.min(100, mesetaActual ? mesetaActual.progreso * 100 : (temp / (tempObj || 100)) * 100)}%` }}
                 />
               </div>
               <p className="text-center text-xs text-neutral-400 mt-2">
                 Etapa {estado?.etapa ?? 0} de {estado?.etapaTotal ?? 0}
                 {' — '}
-                {estadoTxt === 'meseta' ? `Meseta a ${estado?.tempObj ?? 0}°C` : `Rampa hasta ${estado?.tempObj ?? 0}°C`}
+                {estadoTxt === 'meseta'
+                  ? (mesetaActual
+                      ? `Meseta a ${estado?.tempObj ?? 0}°C — faltan ${mesetaActual.restanteMin} min`
+                      : `Meseta a ${estado?.tempObj ?? 0}°C`)
+                  : `Rampa hasta ${estado?.tempObj ?? 0}°C`}
               </p>
             </div>
 
