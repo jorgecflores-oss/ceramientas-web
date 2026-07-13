@@ -9,6 +9,7 @@ type Pendiente = {
 }
 
 const pendientes = new Map<string, Pendiente>()
+const _tsEstado = new Map<string, number>()
 
 let client: MqttClient | null = null
 let conectado = false
@@ -64,6 +65,10 @@ export function iniciarMQTT() {
     }
     const cbEstado = subsEstado.get(topic)
     if (cbEstado) {
+      const now = Date.now()
+      const delta = _tsEstado.has(topic) ? now - _tsEstado.get(topic)! : 0
+      _tsEstado.set(topic, now)
+      console.log(`[ESTADO] delta=${delta}ms`)
       try { cbEstado(mapearEstado(JSON.parse(payload.toString()))) }
       catch (e) { console.error('[MQTT] parse estado error', e) }
       return

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { descubrirHornosMQTT } from '../services/mqttService'
 import { verificarHornoMQTT, probeAP } from '../services/hornoService'
+import { feedbackBoton } from '../utils/feedback'
 
 interface Props {
   onVolver?: () => void
@@ -24,6 +25,7 @@ export function LoginPage({ onVolver }: Props) {
   useEffect(() => () => { if (countdownRef.current) clearInterval(countdownRef.current) }, [])
 
   async function configurarWifiNuevo() {
+    feedbackBoton()
     setWifiNuevo('buscando')
     try {
       const apOk = await probeAP()
@@ -41,6 +43,7 @@ export function LoginPage({ onVolver }: Props) {
   const BUSQUEDA_MS = 12000
 
   async function buscarHornos() {
+    feedbackBoton()
     setBuscando(true)
     setError('')
     setHornosDetectados([])
@@ -69,6 +72,7 @@ export function LoginPage({ onVolver }: Props) {
 
   async function vincularHorno(hornoId: string) {
     if (!hornoId) return
+    feedbackBoton()
     setBuscando(true)
     setError('')
     try {
@@ -117,8 +121,8 @@ export function LoginPage({ onVolver }: Props) {
             {hornos.map(h => (
               <button
                 key={h.hornoId}
-                onClick={() => { setHornoActivo(h.hornoId); onVolver?.() }}
-                className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-800 hover:border-orange-500 rounded-lg transition"
+                onClick={() => { feedbackBoton(); setHornoActivo(h.hornoId); onVolver?.() }}
+                className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-800 hover:border-orange-500 rounded-lg transition active:scale-95 duration-75"
               >
                 <div className="text-left">
                   <p className="text-white font-semibold">{h.nombre}</p>
@@ -153,7 +157,7 @@ export function LoginPage({ onVolver }: Props) {
                 <button
                   onClick={configurarWifiNuevo}
                   disabled={wifiNuevo === 'buscando'}
-                  className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 rounded-lg text-sm font-semibold transition"
+                  className="w-full py-2.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 rounded-lg text-sm font-semibold transition active:scale-95 duration-75"
                 >
                   {wifiNuevo === 'buscando' ? 'Buscando horno en AP...' : 'Abrir página de configuración'}
                 </button>
@@ -178,7 +182,7 @@ export function LoginPage({ onVolver }: Props) {
             <button
               onClick={buscarHornos}
               disabled={buscando}
-              className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg font-semibold transition"
+              className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg font-semibold transition active:scale-95 duration-75"
             >
               {buscando ? `Buscando... ${countdown}s` : 'Buscar hornos'}
             </button>
@@ -191,7 +195,7 @@ export function LoginPage({ onVolver }: Props) {
                     key={id}
                     onClick={() => vincularHorno(id)}
                     disabled={buscando}
-                    className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-700 hover:border-orange-500 disabled:opacity-50 rounded-lg transition"
+                    className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-700 hover:border-orange-500 disabled:opacity-50 rounded-lg transition active:scale-95 duration-75"
                   >
                     <span className="text-neutral-300 font-mono text-sm">{id.slice(-6)}</span>
                     <span className="text-orange-500 text-sm">Vincular →</span>
@@ -212,7 +216,7 @@ export function LoginPage({ onVolver }: Props) {
               <button
                 onClick={() => vincularHorno(hornoIdInput.trim())}
                 disabled={buscando || !hornoIdInput.trim()}
-                className="px-4 py-3 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 rounded-lg font-semibold transition"
+                className="px-4 py-3 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 rounded-lg font-semibold transition active:scale-95 duration-75"
               >
                 Vincular
               </button>

@@ -4,6 +4,7 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
 import { AP_IP } from '../utils/constants'
+import { feedbackBoton } from '../utils/feedback'
 
 type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
 type WifiStep = null | 'detectando' | 'listo' | 'instrucciones'
@@ -77,6 +78,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     const facR = Math.floor(facV / 1000) * 1000
     const conR = Math.floor(conV / 10) * 10
 
+    feedbackBoton()
     setGuardando(true)
     try {
       if (!horno) return
@@ -95,6 +97,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
 
   async function guardarNombre() {
     if (!horno?.hornoId || !pass || !nombreInput.trim()) return
+    feedbackBoton()
     setGuardandoNombre(true)
     try {
       await postConfig(horno.hornoId, { nombre: nombreInput.trim() })
@@ -119,6 +122,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   }
 
   async function abrirConfigWifi() {
+    feedbackBoton()
     setWifiStep('detectando')
     // 1. Probar si el AP del firmware responde (usuario conectado al hotspot)
     try {
@@ -152,6 +156,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
 
   async function iniciarOTA() {
     if (!horno?.hornoId) return
+    feedbackBoton()
     if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
     setOtaProgress(0)
     setOtaMensaje('')
@@ -247,7 +252,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
               <button
                 onClick={guardarNombre}
                 disabled={guardandoNombre}
-                className="px-3 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-sm font-semibold"
+                className="px-3 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-sm font-semibold active:scale-95 transition duration-75"
               >
                 {guardandoNombre ? '...' : 'OK'}
               </button>
@@ -325,7 +330,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
             <button
               onClick={guardarParams}
               disabled={guardando}
-              className="w-full mt-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-xl font-semibold transition"
+              className="w-full mt-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-xl font-semibold transition active:scale-95 duration-75"
             >
               {guardando ? 'Guardando...' : 'Guardar configuración'}
             </button>
@@ -338,8 +343,8 @@ export function ConfigPage({ onAgregarHorno }: Props) {
 
             <div className="space-y-2">
               <button
-                onClick={onAgregarHorno}
-                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 hover:bg-neutral-800 rounded-xl transition"
+                onClick={() => { feedbackBoton(); onAgregarHorno() }}
+                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 hover:bg-neutral-800 rounded-xl transition active:scale-95 duration-75"
               >
                 <span className="text-2xl">➕</span>
                 <div className="flex-1 text-left">
@@ -426,7 +431,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                   </button>
                   <button
                     onClick={() => { window.open(wifiUrl, '_blank'); cerrarWifi() }}
-                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition"
+                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition active:scale-95 duration-75"
                   >
                     Abrir
                   </button>
@@ -458,7 +463,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                   </button>
                   <button
                     onClick={abrirConfigWifi}
-                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition"
+                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition active:scale-95 duration-75"
                   >
                     Reintentar
                   </button>
@@ -571,7 +576,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
               </button>
               <button
                 onClick={desvincularHorno}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition"
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition active:scale-95 duration-75"
               >
                 Desvincular
               </button>

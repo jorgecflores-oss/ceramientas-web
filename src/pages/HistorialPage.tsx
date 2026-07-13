@@ -3,6 +3,7 @@ import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { getHistorial, getHistorialCache, deleteHistorialItem, deleteHistorialAll } from '../services/historialService'
 import type { Horneada } from '../types/horno'
+import { feedbackBoton } from '../utils/feedback'
 
 const MOTIVO_INFO: Record<string, { texto: string; color: string }> = {
   normal:               { texto: '✓ Finalizado normalmente', color: 'text-green-500'  },
@@ -45,8 +46,8 @@ function ModalConfirmar({ titulo, mensaje, onCancelar, onConfirmar }: {
             Cancelar
           </button>
           <button
-            onClick={onConfirmar}
-            className="flex-1 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition"
+            onClick={() => { feedbackBoton(); onConfirmar() }}
+            className="flex-1 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition active:scale-95 duration-75"
           >
             Borrar
           </button>

@@ -1,4 +1,5 @@
 import type { Page } from '../types/horno'
+import { feedbackBoton } from '../utils/feedback'
 
 interface Props {
   active: Page
@@ -19,8 +20,8 @@ export function BottomNav({ active, onChange }: Props) {
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => onChange(tab.id)}
-            className={`flex flex-col items-center gap-1 py-3 flex-1 transition ${
+            onClick={() => { feedbackBoton(); onChange(tab.id) }}
+            className={`flex flex-col items-center gap-1 py-3 flex-1 transition active:scale-95 duration-75 ${
               active === tab.id ? 'text-orange-500' : 'text-neutral-500'
             }`}
           >

@@ -6,6 +6,7 @@ import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
+import { feedbackBoton } from '../utils/feedback'
 
 function LedEstado({ activo, label, color }: { activo: boolean; label: string; color: string }) {
   return (
@@ -190,6 +191,7 @@ export function HornoPage() {
   async function parar() {
     if (!horno) return
     if (!confirm('¿Parar horneado?')) return
+    feedbackBoton()
     const mqttOk = publicarComando(horno.hornoId, 'detener')
     if (!mqttOk) {
       try {
@@ -427,7 +429,7 @@ export function HornoPage() {
         <div className="flex justify-center mb-4">
           <button
             onClick={parar}
-            className="px-12 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold tracking-wider transition"
+            className="px-12 py-3 bg-red-600 hover:bg-red-700 active:scale-95 rounded-lg font-bold tracking-wider transition-all duration-75"
           >
             PARAR
           </button>
@@ -466,14 +468,14 @@ export function HornoPage() {
           <p className="text-neutral-300 text-sm mb-6">¿Continuamos la horneada?</p>
           <div className="flex gap-3">
             <button
-              onClick={() => { setModalCorteLuz(false); enviarCmd('detener') }}
-              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 transition"
+              onClick={() => { feedbackBoton(); setModalCorteLuz(false); enviarCmd('detener') }}
+              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 active:scale-95 transition-all duration-75"
             >
               Cancelar
             </button>
             <button
-              onClick={() => { setModalCorteLuz(false); enviarCmd('continuar') }}
-              className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 rounded-xl text-white font-bold transition"
+              onClick={() => { feedbackBoton(); setModalCorteLuz(false); enviarCmd('continuar') }}
+              className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
             >
               Continuar
             </button>
@@ -502,14 +504,14 @@ export function HornoPage() {
           <p className="text-white font-bold text-sm mb-6">Desconectá la alimentación del horno ahora.</p>
           <div className="flex gap-3">
             <button
-              onClick={() => { setModalRampaRapida(false); enviarCmd('detener') }}
-              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 transition"
+              onClick={() => { feedbackBoton(); setModalRampaRapida(false); enviarCmd('detener') }}
+              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 active:scale-95 transition-all duration-75"
             >
               Detener proceso
             </button>
             <button
-              onClick={() => { setModalRampaRapida(false); enviarCmd('cancelar_alarma') }}
-              className="flex-1 py-3 bg-red-700 hover:bg-red-800 rounded-xl text-white font-bold transition"
+              onClick={() => { feedbackBoton(); setModalRampaRapida(false); enviarCmd('cancelar_alarma') }}
+              className="flex-1 py-3 bg-red-700 hover:bg-red-800 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
             >
               Ya desconecté
             </button>

@@ -3,6 +3,13 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 
+if (new URLSearchParams(window.location.search).has('debug')) {
+  const s = document.createElement('script')
+  s.src = 'https://cdn.jsdelivr.net/npm/eruda'
+  s.onload = () => (window as any).eruda?.init()
+  document.head.appendChild(s)
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

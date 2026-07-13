@@ -4,6 +4,7 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { fetchProgramasOnce, postComando, postPrograma, deletePrograma } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
 import { STORAGE_KEYS } from '../utils/constants'
+import { feedbackBoton } from '../utils/feedback'
 import type { Programa, Paso } from '../types/horno'
 
 const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
@@ -91,6 +92,7 @@ export function ProgramasPage() {
 
   async function ejecutar(idx: number) {
     if (!horno) return
+    feedbackBoton()
     const ok = publicarComando(horno.hornoId, `ejecutar:${idx}`)
     if (!ok) {
       try {
@@ -108,6 +110,7 @@ export function ProgramasPage() {
       alert('Temperatura inválida (50–1300°C)')
       return
     }
+    feedbackBoton()
     setGuardandoTF(true)
     try {
       await postPrograma(horno.hornoId, editTF.idx, { tempFinal: valor })
@@ -122,6 +125,7 @@ export function ProgramasPage() {
 
   async function borrarPrograma(idx: number) {
     if (!horno?.hornoId) return
+    feedbackBoton()
     try {
       await deletePrograma(horno.hornoId, idx)
       const nuevos = programas.filter((_, i) => i !== idx)
@@ -138,6 +142,7 @@ export function ProgramasPage() {
 
   async function guardarPasos() {
     if (!editPasos || !horno?.hornoId) return
+    feedbackBoton()
     setGuardandoPasos(true)
     try {
       await postPrograma(horno.hornoId, editPasos.idx, { pasos: editPasos.pasos })
@@ -180,6 +185,7 @@ export function ProgramasPage() {
     if (slot === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
     const tempFinal = [...nuevoPrograma.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
     const pasosParaFirmware = nuevoPrograma.pasos.map(p => ({ ...p, velocidad: Math.round(p.velocidad * 10) }))
+    feedbackBoton()
     setGuardandoNuevo(true)
     try {
       await postPrograma(horno.hornoId, slot, { nombre, pasos: pasosParaFirmware, tempFinal })
@@ -333,7 +339,7 @@ export function ProgramasPage() {
 
                 <button
                   onClick={() => ejecutar(p.idx)}
-                  className="w-full py-2 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500 rounded-lg text-orange-500 font-semibold transition"
+                  className="w-full py-2 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500 rounded-lg text-orange-500 font-semibold transition active:scale-95 duration-75"
                 >
                   🔥 Ejecutar
                 </button>
@@ -360,7 +366,7 @@ export function ProgramasPage() {
               </button>
               <button
                 onClick={() => borrarPrograma(confirmarBorrar)}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition"
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition active:scale-95 duration-75"
               >
                 Borrar
               </button>
@@ -459,7 +465,7 @@ export function ProgramasPage() {
               <button
                 onClick={guardarNuevo}
                 disabled={guardandoNuevo}
-                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-xl font-semibold transition"
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-xl font-semibold transition active:scale-95 duration-75"
               >
                 {guardandoNuevo ? 'Guardando...' : 'Crear'}
               </button>
@@ -526,7 +532,7 @@ export function ProgramasPage() {
               <button
                 onClick={guardarPasos}
                 disabled={guardandoPasos}
-                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-xl font-semibold transition"
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-xl font-semibold transition active:scale-95 duration-75"
               >
                 {guardandoPasos ? 'Guardando...' : 'Guardar'}
               </button>
