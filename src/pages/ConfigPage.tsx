@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP } from '../services/hornoService'
+import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
-import { AP_IP } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
 
 type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
-type WifiStep = null | 'detectando' | 'listo' | 'instrucciones'
 
 interface Props {
   onAgregarHorno: () => void
@@ -34,9 +32,6 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [otaMensaje, setOtaMensaje] = useState('')
   const [otaVersionGitHub, setOtaVersionGitHub] = useState('')
   const otaIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const [wifiStep, setWifiStep] = useState<WifiStep>(null)
-  const [wifiUrl, setWifiUrl] = useState('')
 
   useEffect(() => {
     if (!horno?.hornoId) return
@@ -114,36 +109,6 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     if (!horno) return
     quitarHorno(horno.hornoId)
     setConfirmarDesvincular(false)
-  }
-
-  function cerrarWifi() {
-    setWifiStep(null)
-    setWifiUrl('')
-  }
-
-  async function abrirConfigWifi() {
-    feedbackBoton()
-    setWifiStep('detectando')
-    // 1. Probar si el AP del firmware responde (usuario conectado al hotspot)
-    try {
-      const resp = await fetch(`http://${AP_IP}/info`, { signal: AbortSignal.timeout(800) })
-      if (resp.ok) {
-        setWifiUrl(`http://${AP_IP}/`)
-        setWifiStep('listo')
-        return
-      }
-    } catch {}
-    // 2. Usar IP LAN cacheada
-    if (horno?.hornoId) {
-      const ip = getCachedIP(horno.hornoId)
-      if (ip) {
-        setWifiUrl(`http://${ip}/`)
-        setWifiStep('listo')
-        return
-      }
-    }
-    // 3. No hay ruta disponible — mostrar instrucciones
-    setWifiStep('instrucciones')
   }
 
   function cerrarOTA() {
@@ -349,20 +314,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                 <span className="text-2xl">➕</span>
                 <div className="flex-1 text-left">
                   <p className="text-white text-sm font-semibold">Agregar horno</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">Vincular un nuevo controlador</p>
-                </div>
-                <span className="text-neutral-600">›</span>
-              </button>
-
-              <button
-                onClick={abrirConfigWifi}
-                disabled={wifiStep !== null}
-                className={`w-full flex items-center gap-4 py-3 border-b border-neutral-800 transition ${wifiStep !== null ? 'opacity-50 cursor-not-allowed' : 'hover:bg-neutral-800 rounded-xl'}`}
-              >
-                <span className="text-2xl">📡</span>
-                <div className="flex-1 text-left">
-                  <p className="text-white text-sm font-semibold">Configurar WiFi</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">Conectar el controlador a una red nueva</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">Vincular uno nuevo o reconfigurar su WiFi</p>
                 </div>
                 <span className="text-neutral-600">›</span>
               </button>
@@ -401,79 +353,6 @@ export function ConfigPage({ onAgregarHorno }: Props) {
         </p>
 
       </div>
-
-      {/* Modal WiFi Setup */}
-      {wifiStep !== null && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-neutral-900 rounded-2xl p-7 max-w-sm w-full border border-neutral-800 flex flex-col items-center text-center">
-
-            {wifiStep === 'detectando' && (
-              <>
-                <div className="w-10 h-10 border-4 border-neutral-700 border-t-orange-500 rounded-full animate-spin mb-4" />
-                <p className="text-white font-bold text-lg mb-2">Detectando controlador...</p>
-              </>
-            )}
-
-            {wifiStep === 'listo' && (
-              <>
-                <p className="text-4xl mb-3">📡</p>
-                <p className="text-white font-bold text-lg mb-2">Configurar WiFi</p>
-                <p className="text-neutral-400 text-sm mb-6">
-                  Se abrirá la página de configuración del controlador en una nueva pestaña.
-                  Desde ahí podés escanear y conectar a una red WiFi nueva.
-                </p>
-                <div className="flex gap-2 w-full">
-                  <button
-                    onClick={cerrarWifi}
-                    className="flex-1 py-3 border border-neutral-700 rounded-xl text-neutral-400 text-sm hover:bg-neutral-800 transition"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={() => { window.open(wifiUrl, '_blank'); cerrarWifi() }}
-                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition active:scale-95 duration-75"
-                  >
-                    Abrir
-                  </button>
-                </div>
-              </>
-            )}
-
-            {wifiStep === 'instrucciones' && (
-              <>
-                <p className="text-4xl mb-3">📡</p>
-                <p className="text-white font-bold text-lg mb-2">Conectate al hotspot</p>
-                <div className="bg-neutral-800 rounded-xl p-4 w-full mb-4 text-left">
-                  <p className="text-xs text-neutral-400 uppercase tracking-wider mb-2">Red WiFi</p>
-                  <p className="text-orange-400 font-bold font-mono">
-                    CERAMIENTAS_{horno?.hornoId?.slice(-4) ?? '????'}
-                  </p>
-                  <p className="text-xs text-neutral-400 uppercase tracking-wider mt-3 mb-1">Contraseña</p>
-                  <p className="text-white font-mono">ceramientas</p>
-                </div>
-                <p className="text-neutral-400 text-sm mb-6">
-                  Conectate a esa red desde tu dispositivo y volvé a intentar.
-                </p>
-                <div className="flex gap-2 w-full">
-                  <button
-                    onClick={cerrarWifi}
-                    className="flex-1 py-3 border border-neutral-700 rounded-xl text-neutral-400 text-sm hover:bg-neutral-800 transition"
-                  >
-                    Cerrar
-                  </button>
-                  <button
-                    onClick={abrirConfigWifi}
-                    className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition active:scale-95 duration-75"
-                  >
-                    Reintentar
-                  </button>
-                </div>
-              </>
-            )}
-
-          </div>
-        </div>
-      )}
 
       {/* Modal OTA */}
       {otaStep !== null && (
