@@ -58,11 +58,11 @@ export function ProgramasPage() {
   const [confirmarBorrar, setConfirmarBorrar] = useState<number | null>(null)
 
   // Modal edición pasos (solo programas custom idx >= 4)
-  const [editPasos, setEditPasos] = useState<{ idx: number; nombre: string; pasos: Paso[] } | null>(null)
+  const [editPasos, setEditPasos] = useState<{ idx: number; nombre: string; pasos: Paso[]; velTexto: string[] } | null>(null)
   const [guardandoPasos, setGuardandoPasos] = useState(false)
 
   // Modal nuevo programa
-  const [nuevoPrograma, setNuevoPrograma] = useState<{ nombre: string; pasos: Paso[] } | null>(null)
+  const [nuevoPrograma, setNuevoPrograma] = useState<{ nombre: string; pasos: Paso[]; velTexto: string[] } | null>(null)
   const [guardandoNuevo, setGuardandoNuevo] = useState(false)
 
   useEffect(() => {
@@ -166,18 +166,34 @@ export function ProgramasPage() {
     setNuevoPrograma({ ...nuevoPrograma, pasos: nuevoPrograma.pasos.map((p, i) => i === pasoIdx ? nuevoPaso : p) })
   }
 
+  function editarVelocidadTextoNuevo(pasoIdx: number, rawTexto: string) {
+    if (!nuevoPrograma) return
+    const normalizado = rawTexto.replace(',', '.')
+    const valor = parseFloat(normalizado)
+    const nuevosPasos = nuevoPrograma.pasos.map((p, i) =>
+      i === pasoIdx ? { ...p, velocidad: isNaN(valor) ? p.velocidad : valor } : p
+    )
+    const nuevosTextos = nuevoPrograma.velTexto.map((t, i) => i === pasoIdx ? rawTexto : t)
+    setNuevoPrograma({ ...nuevoPrograma, pasos: nuevosPasos, velTexto: nuevosTextos })
+  }
+
   function agregarNuevoPaso() {
     if (!nuevoPrograma || nuevoPrograma.pasos.length >= 8) return
     const ultimo = nuevoPrograma.pasos[nuevoPrograma.pasos.length - 1]
     setNuevoPrograma({
       ...nuevoPrograma,
       pasos: [...nuevoPrograma.pasos, { velocidad: ultimo.velocidad, temperatura: 0, tiempo: 0 }],
+      velTexto: [...nuevoPrograma.velTexto, ultimo.velocidad.toFixed(1)],
     })
   }
 
   function quitarNuevoPaso(pasoIdx: number) {
     if (!nuevoPrograma || nuevoPrograma.pasos.length <= 1) return
-    setNuevoPrograma({ ...nuevoPrograma, pasos: nuevoPrograma.pasos.filter((_, i) => i !== pasoIdx) })
+    setNuevoPrograma({
+      ...nuevoPrograma,
+      pasos: nuevoPrograma.pasos.filter((_, i) => i !== pasoIdx),
+      velTexto: nuevoPrograma.velTexto.filter((_, i) => i !== pasoIdx),
+    })
   }
 
   async function guardarNuevo() {
@@ -216,6 +232,17 @@ export function ProgramasPage() {
     setEditPasos({ ...editPasos, pasos: nuevosPasos })
   }
 
+  function editarVelocidadTexto(pasoIdx: number, rawTexto: string) {
+    if (!editPasos) return
+    const normalizado = rawTexto.replace(',', '.')
+    const valor = parseFloat(normalizado)
+    const nuevosPasos = editPasos.pasos.map((p, i) =>
+      i === pasoIdx ? { ...p, velocidad: isNaN(valor) ? p.velocidad : Math.round(valor * 10) } : p
+    )
+    const nuevosTextos = editPasos.velTexto.map((t, i) => i === pasoIdx ? rawTexto : t)
+    setEditPasos({ ...editPasos, pasos: nuevosPasos, velTexto: nuevosTextos })
+  }
+
   const programasVisibles = programas
     .map((p, idx) => ({ ...p, idx }))
     .filter(p => tieneActivos(p))
@@ -234,7 +261,7 @@ export function ProgramasPage() {
           <button
             onClick={() => {
               if (slotLibre() === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
-              setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 1, temperatura: 600, tiempo: 0 }] })
+              setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 1, temperatura: 600, tiempo: 0 }], velTexto: ['1.0'] })
             }}
             className="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-full text-sm font-semibold transition"
           >
@@ -309,7 +336,12 @@ export function ProgramasPage() {
                       )
                     ) : (
                       <button
-                        onClick={() => setEditPasos({ idx: p.idx, nombre: p.nombre, pasos: [...p.pasos] })}
+                        onClick={() => setEditPasos({
+                        idx: p.idx,
+                        nombre: p.nombre,
+                        pasos: [...p.pasos],
+                        velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
+                      })}
                         className="text-orange-500 font-bold text-lg hover:text-orange-400 transition"
                       >
                         {tempFinalMostrar}°C ✎
@@ -412,12 +444,11 @@ export function ProgramasPage() {
                   <div key={i} className="flex items-center gap-2">
                     <span className="text-orange-500 text-xs font-bold w-6 shrink-0">P{i + 1}</span>
                     <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={paso.velocidad || ''}
+                      type="text"
+                      inputMode="decimal"
                       placeholder="0"
-                      onChange={e => editarNuevoPaso(i, 'velocidad', e.target.value)}
+                      value={nuevoPrograma.velTexto[i]}
+                      onChange={e => editarVelocidadTextoNuevo(i, e.target.value)}
                       className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
                     <input
@@ -510,30 +541,13 @@ export function ProgramasPage() {
                   <div key={origIdx} className="grid grid-cols-3 gap-2 items-center">
                     <div className="flex items-center gap-1">
                       <span className="text-orange-500 text-xs font-bold w-5">P{numVisible}</span>
-                      <div className="flex items-center flex-1 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => editarPaso(origIdx, 'velocidad', Math.max(0, paso.velocidad / 10 - 0.5).toFixed(1))}
-                          className="shrink-0 w-7 h-7 flex items-center justify-center bg-neutral-800 border border-neutral-700 rounded-l text-neutral-300 hover:bg-neutral-700 active:scale-95 transition"
-                        >
-                          −
-                        </button>
-                        <input
-                          type="number"
-                          step="0.1"
-                          inputMode="decimal"
-                          value={(paso.velocidad / 10).toFixed(1)}
-                          onChange={e => editarPaso(origIdx, 'velocidad', e.target.value)}
-                          className="w-full min-w-0 px-1 py-1.5 bg-neutral-800 border-y border-neutral-700 text-white text-sm text-center focus:border-orange-500 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => editarPaso(origIdx, 'velocidad', (paso.velocidad / 10 + 0.5).toFixed(1))}
-                          className="shrink-0 w-7 h-7 flex items-center justify-center bg-neutral-800 border border-neutral-700 rounded-r text-neutral-300 hover:bg-neutral-700 active:scale-95 transition"
-                        >
-                          +
-                        </button>
-                      </div>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={editPasos.velTexto[origIdx]}
+                        onChange={e => editarVelocidadTexto(origIdx, e.target.value)}
+                        className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                      />
                     </div>
                     <input
                       type="number"
