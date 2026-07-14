@@ -127,6 +127,10 @@ export function ProgramasPage() {
       alert('Temperatura inválida (50–1300°C)')
       return
     }
+    if (editTF.idx < 4 && (valor < 100 || valor > 1300)) {
+      alert('tempFinal fuera de rango 100-1300')
+      return
+    }
     feedbackBoton()
     setGuardandoTF(true)
     try {
@@ -138,8 +142,8 @@ export function ProgramasPage() {
       }
       actualizarLocal(editTF.idx, verificado)
       setEditTF(null)
-    } catch {
-      alert('Error guardando temperatura')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error guardando temperatura')
     } finally {
       setGuardandoTF(false)
     }
@@ -182,8 +186,8 @@ export function ProgramasPage() {
       }
       actualizarLocal(editPasos.idx, verificado)
       setEditPasos(null)
-    } catch {
-      alert('Error guardando pasos')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error guardando pasos')
     } finally {
       setGuardandoPasos(false)
     }
@@ -251,8 +255,8 @@ export function ProgramasPage() {
       }
       actualizarLocal(slot, verificado)
       setNuevoPrograma(null)
-    } catch {
-      alert('Error guardando programa')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error guardando programa')
     } finally {
       setGuardandoNuevo(false)
     }
