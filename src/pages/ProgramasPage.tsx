@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { fetchProgramasOnce, postComando, postPrograma, deletePrograma } from '../services/hornoService'
+import { fetchProgramasOnce, postComando, postPrograma, deletePrograma, getPrograma } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
 import { STORAGE_KEYS } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
@@ -103,6 +103,23 @@ export function ProgramasPage() {
     }
   }
 
+  async function esperarConfirmacion(
+    hornoId: string,
+    idx: number,
+    coincide: (p: Programa) => boolean
+  ): Promise<Programa | null> {
+    for (let intento = 0; intento < 3; intento++) {
+      await new Promise(r => setTimeout(r, 1200))
+      try {
+        const p = await getPrograma(hornoId, idx)
+        if (coincide(p)) return p
+      } catch {
+        // reintentar
+      }
+    }
+    return null
+  }
+
   async function guardarTempFinal() {
     if (!editTF || !horno?.hornoId) return
     const valor = parseInt(editTF.valor, 10)
@@ -114,7 +131,12 @@ export function ProgramasPage() {
     setGuardandoTF(true)
     try {
       await postPrograma(horno.hornoId, editTF.idx, { tempFinal: valor })
-      actualizarLocal(editTF.idx, { tempFinal: valor })
+      const verificado = await esperarConfirmacion(horno.hornoId, editTF.idx, p => (p.tempFinal ?? 0) === valor)
+      if (!verificado) {
+        alert('El horno no confirmó el cambio. No ejecutes este programa todavía — volvé a intentar guardar.')
+        return
+      }
+      actualizarLocal(editTF.idx, verificado)
       setEditTF(null)
     } catch {
       alert('Error guardando temperatura')
@@ -149,7 +171,16 @@ export function ProgramasPage() {
     setGuardandoPasos(true)
     try {
       await postPrograma(horno.hornoId, editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
-      actualizarLocal(editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
+      const verificado = await esperarConfirmacion(
+        horno.hornoId,
+        editPasos.idx,
+        p => p.nombre === nombre && (p.tempFinal ?? 0) === tempFinal
+      )
+      if (!verificado) {
+        alert('El horno no confirmó los cambios. No ejecutes este programa todavía — volvé a intentar guardar.')
+        return
+      }
+      actualizarLocal(editPasos.idx, verificado)
       setEditPasos(null)
     } catch {
       alert('Error guardando pasos')
@@ -208,9 +239,17 @@ export function ProgramasPage() {
     setGuardandoNuevo(true)
     try {
       await postPrograma(horno.hornoId, slot, { nombre, pasos: pasosParaFirmware, tempFinal })
-      // Actualización local optimista — no refetchear: el firmware puede tardar en
-      // escribir la EEPROM y devolver el programa viejo si se consulta de inmediato.
-      actualizarLocal(slot, { nombre, tipo: 1, pasos: pasosParaFirmware, tempFinal })
+      const verificado = await esperarConfirmacion(
+        horno.hornoId,
+        slot,
+        p => p.nombre === nombre && (p.tempFinal ?? 0) === tempFinal
+      )
+      if (!verificado) {
+        alert('El horno no confirmó el programa nuevo. Revisalo antes de ejecutarlo.')
+        setNuevoPrograma(null)
+        return
+      }
+      actualizarLocal(slot, verificado)
       setNuevoPrograma(null)
     } catch {
       alert('Error guardando programa')
@@ -387,7 +426,7 @@ export function ProgramasPage() {
 
       {/* Modal confirmación borrar */}
       {confirmarBorrar !== null && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-6">
           <div className="bg-neutral-900 rounded-2xl p-6 max-w-sm w-full border border-neutral-800">
             <h3 className="font-bold text-lg mb-2">¿Borrar programa?</h3>
             <p className="text-sm text-neutral-400 mb-6">
@@ -413,7 +452,7 @@ export function ProgramasPage() {
 
       {/* Modal nuevo programa */}
       {nuevoPrograma !== null && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 overflow-y-auto">
           <div className="bg-neutral-900 rounded-2xl p-5 max-w-sm w-full border border-neutral-800 my-4">
             <h3 className="font-bold text-lg mb-4">Nuevo programa</h3>
 
@@ -511,7 +550,7 @@ export function ProgramasPage() {
 
       {/* Modal edición de pasos */}
       {editPasos !== null && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 overflow-y-auto">
           <div className="bg-neutral-900 rounded-2xl p-5 max-w-sm w-full border border-neutral-800 my-4">
             <h3 className="font-bold text-lg mb-4">Editar programa</h3>
 
@@ -582,6 +621,17 @@ export function ProgramasPage() {
                 {guardandoPasos ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bloqueo total mientras se confirma temp final (predefinidos) */}
+      {guardandoTF && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-6">
+          <div className="bg-neutral-900 rounded-2xl p-7 max-w-sm w-full border border-neutral-800 flex flex-col items-center text-center">
+            <div className="w-10 h-10 border-4 border-neutral-700 border-t-orange-500 rounded-full animate-spin mb-4" />
+            <p className="text-white font-bold text-lg mb-2">Guardando...</p>
+            <p className="text-neutral-400 text-sm">Confirmando el cambio con el horno. No cierres la app.</p>
           </div>
         </div>
       )}

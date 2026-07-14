@@ -78,6 +78,10 @@ export async function deletePrograma(hornoId: string, idx: number) {
   return (await hornoRequest(hornoId, `programas/${idx}`, 'DELETE')).data
 }
 
+export async function getPrograma(hornoId: string, idx: number): Promise<Programa> {
+  return (await hornoRequest(hornoId, `programas/${idx}`, 'GET')).data as Programa
+}
+
 export async function postOTA(hornoId: string): Promise<{ ok: boolean; msg?: string }> {
   const ip = await resolverIP(hornoId)
   if (!ip) throw new Error('No se pudo encontrar el horno')
@@ -188,7 +192,7 @@ export async function hornoRequest(
           'Content-Type': 'application/json',
           'X-Auth': password,
         },
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(HTTP_TIMEOUT),
       }
       if (body && method !== 'GET') opts.body = body
       const resp = await fetch(`http://${ip}/${path}`, opts)
