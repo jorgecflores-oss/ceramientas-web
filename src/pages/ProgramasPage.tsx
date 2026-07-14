@@ -103,13 +103,6 @@ export function ProgramasPage() {
     }
   }
 
-  function sincronizarConFirmware() {
-    if (!horno?.hornoId) return
-    fetchProgramasOnce(horno.hornoId)
-      .then(p => setProgramas(p))
-      .catch(() => {})
-  }
-
   async function guardarTempFinal() {
     if (!editTF || !horno?.hornoId) return
     const valor = parseInt(editTF.valor, 10)
@@ -123,7 +116,6 @@ export function ProgramasPage() {
       await postPrograma(horno.hornoId, editTF.idx, { tempFinal: valor })
       actualizarLocal(editTF.idx, { tempFinal: valor })
       setEditTF(null)
-      sincronizarConFirmware()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error guardando temperatura')
     } finally {
@@ -159,7 +151,6 @@ export function ProgramasPage() {
       const tempFinal = [...editPasos.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
       actualizarLocal(editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
       setEditPasos(null)
-      sincronizarConFirmware()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error guardando pasos')
     } finally {
@@ -219,7 +210,6 @@ export function ProgramasPage() {
       const tempFinal = [...pasosParaFirmware].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
       actualizarLocal(slot, { nombre, pasos: pasosParaFirmware, tempFinal })
       setNuevoPrograma(null)
-      sincronizarConFirmware()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error guardando programa')
     } finally {
