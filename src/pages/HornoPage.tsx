@@ -253,8 +253,8 @@ export function HornoPage() {
     // Primero: datos locales (incluye ediciones recientes no persistidas aún en firmware)
     aplicarCurva(programas)
 
-    // Solo ir al firmware si no hubo match local (cache vacío o primera carga mid-process)
-    if (!matchPrograma(programas, etapaTotal, etapa, tempObj)) {
+    // Solo ir al firmware si el cache está vacío (primera carga sin datos locales)
+    if (programas.length === 0) {
       try {
         const progs = await getProgramas(hornoId)
         aplicarCurva(progs)
