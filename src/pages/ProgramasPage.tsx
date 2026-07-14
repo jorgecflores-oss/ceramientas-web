@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { fetchProgramasOnce, postComando, postPrograma, deletePrograma, getPrograma } from '../services/hornoService'
+import { fetchProgramasOnce, postComando, postPrograma, deletePrograma } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
 import { STORAGE_KEYS } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
@@ -103,45 +103,27 @@ export function ProgramasPage() {
     }
   }
 
-  async function esperarConfirmacion(
-    hornoId: string,
-    idx: number,
-    coincide: (p: Programa) => boolean
-  ): Promise<Programa | null> {
-    for (let intento = 0; intento < 3; intento++) {
-      await new Promise(r => setTimeout(r, 1200))
-      try {
-        const p = await getPrograma(hornoId, idx)
-        if (coincide(p)) return p
-      } catch {
-        // reintentar
-      }
-    }
-    return null
+  function sincronizarConFirmware() {
+    if (!horno?.hornoId) return
+    fetchProgramasOnce(horno.hornoId)
+      .then(p => setProgramas(p))
+      .catch(() => {})
   }
 
   async function guardarTempFinal() {
     if (!editTF || !horno?.hornoId) return
     const valor = parseInt(editTF.valor, 10)
-    if (isNaN(valor) || valor < 50 || valor > 1300) {
-      alert('Temperatura inválida (50–1300°C)')
-      return
-    }
-    if (editTF.idx < 4 && (valor < 100 || valor > 1300)) {
-      alert('tempFinal fuera de rango 100-1300')
+    if (isNaN(valor) || valor < 100 || valor > 1300) {
+      alert('Temperatura inválida (100–1300°C)')
       return
     }
     feedbackBoton()
     setGuardandoTF(true)
     try {
       await postPrograma(horno.hornoId, editTF.idx, { tempFinal: valor })
-      const verificado = await esperarConfirmacion(horno.hornoId, editTF.idx, p => (p.tempFinal ?? 0) === valor)
-      if (!verificado) {
-        alert('El horno no confirmó el cambio. No ejecutes este programa todavía — volvé a intentar guardar.')
-        return
-      }
-      actualizarLocal(editTF.idx, verificado)
+      actualizarLocal(editTF.idx, { tempFinal: valor })
       setEditTF(null)
+      sincronizarConFirmware()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error guardando temperatura')
     } finally {
@@ -170,22 +152,14 @@ export function ProgramasPage() {
     if (!editPasos || !horno?.hornoId) return
     const nombre = editPasos.nombre.trim()
     if (!nombre) { alert('El nombre no puede estar vacío'); return }
-    const tempFinal = [...editPasos.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
     feedbackBoton()
     setGuardandoPasos(true)
     try {
-      await postPrograma(horno.hornoId, editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
-      const verificado = await esperarConfirmacion(
-        horno.hornoId,
-        editPasos.idx,
-        p => p.nombre === nombre && (p.tempFinal ?? 0) === tempFinal
-      )
-      if (!verificado) {
-        alert('El horno no confirmó los cambios. No ejecutes este programa todavía — volvé a intentar guardar.')
-        return
-      }
-      actualizarLocal(editPasos.idx, verificado)
+      await postPrograma(horno.hornoId, editPasos.idx, { nombre, pasos: editPasos.pasos })
+      const tempFinal = [...editPasos.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
+      actualizarLocal(editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
       setEditPasos(null)
+      sincronizarConFirmware()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error guardando pasos')
     } finally {
@@ -237,24 +211,15 @@ export function ProgramasPage() {
     if (!nombre) { alert('El nombre no puede estar vacío'); return }
     const slot = slotLibre()
     if (slot === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
-    const tempFinal = [...nuevoPrograma.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
     const pasosParaFirmware = nuevoPrograma.pasos.map(p => ({ ...p, velocidad: Math.round(p.velocidad * 10) }))
     feedbackBoton()
     setGuardandoNuevo(true)
     try {
-      await postPrograma(horno.hornoId, slot, { nombre, pasos: pasosParaFirmware, tempFinal })
-      const verificado = await esperarConfirmacion(
-        horno.hornoId,
-        slot,
-        p => p.nombre === nombre && (p.tempFinal ?? 0) === tempFinal
-      )
-      if (!verificado) {
-        alert('El horno no confirmó el programa nuevo. Revisalo antes de ejecutarlo.')
-        setNuevoPrograma(null)
-        return
-      }
-      actualizarLocal(slot, verificado)
+      await postPrograma(horno.hornoId, slot, { nombre, pasos: pasosParaFirmware })
+      const tempFinal = [...pasosParaFirmware].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
+      actualizarLocal(slot, { nombre, pasos: pasosParaFirmware, tempFinal })
       setNuevoPrograma(null)
+      sincronizarConFirmware()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error guardando programa')
     } finally {
