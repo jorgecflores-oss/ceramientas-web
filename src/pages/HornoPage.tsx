@@ -232,7 +232,10 @@ export function HornoPage() {
     }
 
     const aplicarCurva = (progs: typeof programas) => {
+      // Match exacto primero; si falla (ej. programa 1 paso con temp editada vs EEPROM vieja),
+      // match lenient por cantidad de pasos para no quedar sin curva.
       const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
+        ?? matchPrograma(progs, etapaTotal, etapa, 0)
       if (!match) return
       if (esNuevo) {
         const puntos = calcularCurvaTeorica(match.pasos, tempCapture, tCapture)
