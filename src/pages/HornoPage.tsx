@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, publicarComando } from '../services/mqttService'
-import { postComando, fetchProgramasOnce, getConfig, getEstado } from '../services/hornoService'
+import { postComando, getProgramas, getConfig, getEstado } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
@@ -45,7 +45,6 @@ export function HornoPage() {
   const pushTemp = useHornoStore((s) => s.pushTemp)
   const historialTemp = useHornoStore((s) => s.historialTemp)
   const puntosTeoricos = useHornoStore((s) => s.puntosTeoricos)
-  const setProgramas = useHornoStore((s) => s.setProgramas)
   const setCurvaTeorica = useHornoStore((s) => s.setCurvaTeorica)
   const clearCurvaTeorica = useHornoStore((s) => s.clearCurvaTeorica)
   const resetHistorial = useHornoStore((s) => s.resetHistorial)
@@ -251,16 +250,17 @@ export function HornoPage() {
       useHornoStore.getState().limpiarSnapshot(hornoId)
     }
 
-    // Inmediato: usar cache en memoria, sin I/O
+    // Primero: datos locales (incluye ediciones recientes no persistidas aún en firmware)
     aplicarCurva(programas)
 
-    // Fresco: actualizar si los programas cambiaron (ej: tempFinal editado)
-    try {
-      const progs = await fetchProgramasOnce(hornoId)
-      setProgramas(progs)
-      aplicarCurva(progs)
-    } catch (e) {
-      console.error('[CURVA_TEORICA] error', e)
+    // Solo ir al firmware si no hubo match local (cache vacío o primera carga mid-process)
+    if (!matchPrograma(programas, etapaTotal, etapa, tempObj)) {
+      try {
+        const progs = await getProgramas(hornoId)
+        aplicarCurva(progs)
+      } catch (e) {
+        console.error('[CURVA_TEORICA] error', e)
+      }
     }
   }
 
