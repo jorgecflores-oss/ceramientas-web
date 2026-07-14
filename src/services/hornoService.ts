@@ -175,6 +175,8 @@ async function resolverIP(hornoId: string): Promise<string | null> {
   return getCachedIP(hornoId)
 }
 
+class FirmwareError extends Error {}
+
 export async function hornoRequest(
   hornoId: string,
   path: string,
@@ -199,12 +201,12 @@ export async function hornoRequest(
       const data = await resp.json().catch(() => ({}))
       if (!resp.ok) {
         const firmwareError = (data as { error?: string }).error
-        throw new Error(firmwareError ?? `HTTP ${resp.status}`)
+        throw new FirmwareError(firmwareError ?? `HTTP ${resp.status}`)
       }
       return { status: resp.status, data, via: 'http' }
     } catch (e) {
       // Errores HTTP del firmware (4xx/5xx): propagar, no intentar MQTT
-      if (e instanceof Error && /^HTTP \d{3}/.test(e.message)) throw e
+      if (e instanceof FirmwareError) throw e
       // Error de red/timeout: caer a MQTT
     }
   }
