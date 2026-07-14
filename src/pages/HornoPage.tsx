@@ -7,6 +7,7 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
+import { STORAGE_KEYS } from '../utils/constants'
 import type { PuntoCurva } from '../types/horno'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
@@ -231,12 +232,12 @@ export function HornoPage() {
       if (fresco) tempObj = fresco.tempObj
     }
 
-    const aplicarCurva = (progs: typeof programas) => {
+    const aplicarCurva = (progs: typeof programas): boolean => {
       // Match exacto primero; si falla (ej. programa 1 paso con temp editada vs EEPROM vieja),
-      // match lenient por cantidad de pasos para no quedar sin curva.
+      // match lenient por cantidad de pasos.
       const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
         ?? matchPrograma(progs, etapaTotal, etapa, 0)
-      if (!match) return
+      if (!match) return false
       if (esNuevo) {
         const puntos = calcularCurvaTeorica(match.pasos, tempCapture, tCapture)
         setCurvaTeorica(match, puntos, tCapture, tempCapture)
@@ -245,6 +246,7 @@ export function HornoPage() {
         const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
         setCurvaTeorica(match, puntos, t0Virtual, 20)
       }
+      return true
     }
 
     if (esNuevo) {
@@ -253,11 +255,16 @@ export function HornoPage() {
       useHornoStore.getState().limpiarSnapshot(hornoId)
     }
 
-    // Primero: datos locales (incluye ediciones recientes no persistidas aún en firmware)
-    aplicarCurva(programas)
+    // Si conocemos el idx exacto del programa (guardado al ejecutar), intentarlo primero.
+    // Evita que el match genérico elija el programa incorrecto cuando varios tienen la misma
+    // cantidad de pasos (ej. predefinido 1060°C vs custom 200°C, ambos de 1 paso).
+    const idxStr = localStorage.getItem(STORAGE_KEYS.ULTIMO_PROG(hornoId))
+    const idxExacto = idxStr !== null ? parseInt(idxStr, 10) : -1
+    const dibujado =
+      (idxExacto >= 0 && !!programas[idxExacto] && aplicarCurva([programas[idxExacto]]))
+      || aplicarCurva(programas)
 
-    // Solo ir al firmware si el cache está vacío (primera carga sin datos locales)
-    if (programas.length === 0) {
+    if (!dibujado && programas.length === 0) {
       try {
         const progs = await getProgramas(hornoId)
         aplicarCurva(progs)

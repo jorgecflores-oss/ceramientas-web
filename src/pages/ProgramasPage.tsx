@@ -93,6 +93,7 @@ export function ProgramasPage() {
   async function ejecutar(idx: number) {
     if (!horno) return
     feedbackBoton()
+    localStorage.setItem(STORAGE_KEYS.ULTIMO_PROG(horno.hornoId), String(idx))
     const ok = publicarComando(horno.hornoId, `ejecutar:${idx}`)
     if (!ok) {
       try {

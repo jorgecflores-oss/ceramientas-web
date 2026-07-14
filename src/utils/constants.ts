@@ -20,4 +20,5 @@ export const STORAGE_KEYS = {
   SNAPSHOT: (id: string) => `@ceramientas_snapshot_${id}`,
   HISTORIAL_CACHE: (id: string) => `@ceramientas_historial_${id}`,
   HISTORIAL_BORRADOS: (id: string) => `@ceramientas_historial_borrados_${id}`,
+  ULTIMO_PROG: (id: string) => `@ceramientas_ultimo_prog_${id}`,
 } as const
