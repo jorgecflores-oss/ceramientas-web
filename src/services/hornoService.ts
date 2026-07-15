@@ -252,6 +252,18 @@ if (typeof window !== 'undefined') {
   (window as unknown as { hornoRequest: typeof hornoRequest }).hornoRequest = hornoRequest
 }
 
+export async function refreshIPCache(hornoId: string): Promise<void> {
+  try {
+    const resp = await mqttRequest(hornoId, 'info', 'GET', undefined, 8000)
+    if (resp.status === 200) {
+      const data = resp.data as { ip?: string }
+      if (data.ip) cacheIP(hornoId, data.ip)
+    }
+  } catch {
+    // silencioso — no es crítico
+  }
+}
+
 export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
   try {
     const programas = await getProgramas(hornoId)

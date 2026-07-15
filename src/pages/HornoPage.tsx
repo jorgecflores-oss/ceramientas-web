@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, publicarComando } from '../services/mqttService'
-import { postComando, getProgramas, getConfig, getEstado } from '../services/hornoService'
+import { postComando, getProgramas, getConfig, getEstado, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
@@ -86,6 +86,7 @@ export function HornoPage() {
 
   useEffect(() => {
     if (!horno?.hornoId || !pass) return
+    refreshIPCache(horno.hornoId)
     getConfig(horno.hornoId)
       .then(cfg => {
         setHorno(
