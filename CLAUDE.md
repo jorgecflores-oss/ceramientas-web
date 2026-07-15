@@ -127,6 +127,11 @@ PWA debe funcionar 3 escenarios:
 - Feat (2026-07-09): Editar tempFinal inline + editar pasos (modal) + borrar programas custom
 - Feat (2026-07-09): Multi-horno — LoginPage acepta onVolver, ConfigPage con "Agregar horno", Page type incluye 'login'
 - Fix (2026-07-09): CurvaGrafico — muestra curva teórica desde el arranque aunque historialTemp esté vacío
+- Fix (2026-07-14): inputs vacios en modal edición (valor || '' con placeholder)
+- Fix (2026-07-14): validación temp custom 30–1300°C en guardarPasos
+- Fix (2026-07-14): re-POST pasos antes de ejecutar + STORAGE_KEYS.ULTIMO_PROG
+- Fix (2026-07-14): MQTT silencioso — propagar errores firmware tras mqttRequest
+- Fix (2026-07-14): curva programas custom — idx exacto sin mezclar predefinidos + refetch ProgramasPage
 
 ## Notas arquitectura relevantes
 
@@ -145,7 +150,23 @@ PWA debe funcionar 3 escenarios:
 - Predefinidos (idx 0-3): solo editar tempFinal → POST /programas/{idx} con `{ tempFinal }`.
 - Custom (idx 4-23): editar tempFinal + editar pasos + borrar → DELETE /programas/{idx}.
 - Velocidad almacenada en firmware como °C/min × 10. UI muestra y edita en °C/min (float), convierte con `× 10` al guardar.
-- Tras guardar: actualiza Zustand store + localStorage (PROGRAMAS_CACHE) sin refetch.
+- Tras guardar exitoso: actualiza Zustand store + localStorage (PROGRAMAS_CACHE) sin refetch.
+- ProgramasPage refetchea siempre al montar (sin guard `programas.length > 0`) para evitar estado local obsoleto.
+- Antes de ejecutar un custom (idx ≥ 4): re-POST los pasos vía `postPrograma` para garantizar que la EEPROM tiene los datos actuales. El error se traga si falla (se asume que el usuario ya guardó antes por HTTP).
+- `STORAGE_KEYS.ULTIMO_PROG(hornoId)` guarda el idx del último programa ejecutado desde la webapp.
+
+### Limitación conocida: edición custom por MQTT
+**El firmware tiene un bug en `extractStr`** (parsea body MQTT hasta el primer `"` literal, y el body es JSON anidado con `\"` escapados → extrae basura → devuelve 400 "nombre requerido, max 19 chars").
+- **Consecuencia**: POST /programas/{idx} con body `{ nombre, pasos }` SIEMPRE falla vía MQTT, sin importar el nombre real.
+- **Fix webapp**: propagar ese error al usuario con mensaje claro ("necesitás estar conectado a la misma red Wi-Fi").
+- **Fix firmware requerido**: cambiar `extractStr` para manejar secuencias `\"` o cambiar el formato del payload MQTT.
+- **Workaround**: editar programas custom SOLO desde LAN o AP (conexión HTTP directa). Vía internet remoto (solo MQTT), la edición siempre fallará.
+
+### Curva teórica — programas custom (HornoPage)
+- `STORAGE_KEYS.ULTIMO_PROG` se usa en `calcularYGuardarCurva` para identificar si el programa activo es custom (idx ≥ 4).
+- Si es custom: busca SOLO `programas[idxExacto]` para el match (evita falso positivo con predefinido de igual cantidad de pasos y misma tempObj).
+- Si el local no coincide con `tempObj` del firmware (estado obsoleto): hace GET /programas al firmware y usa `progs[idxExacto]` de la EEPROM.
+- Si es predefinido (idx < 4 o sin ULTIMO_PROG): lógica original — busca en todos los locales, fallback a fetch si no hay match.
 
 ### CurvaGrafico (CurvaGrafico.tsx)
 - Guard cambiado a `puntosEf.length === 0 && !hayTeoricoEf`: si hay curva teórica calculada pero aún no llegó ningún dato real (programa recién arrancado o app abierta mid-process), muestra el gráfico con solo la curva teórica en lugar de "Sin datos aún".
@@ -158,6 +179,83 @@ PWA debe funcionar 3 escenarios:
 - `rampa_rapida` → modal alerta con comando `cancelar_alarma`, cooldown Infinity.
 - `etapa`, `meseta`, `fin`, `alarma_critica`, `alarma_exceso`, `rampa_lenta` → toasts tipados (5s).
 - Corte de luz también se detecta por campo `cl` del estado MQTT (sin necesidad de notif).
+
+## Sesión 2026-07-14 (parte 2) — investigación pendiente
+
+### Problema abierto: HTTP nunca funciona en LAN
+
+**Hallazgo crítico**: `cacheIP()` está exportada en hornoService pero **nunca se llama desde ningún componente**. `resolverIP()` solo resuelve:
+1. AP mode (192.168.4.1) — cuando el horno funciona como hotspot
+2. Lo que haya en `localStorage` via `getCachedIP` — que siempre es null porque nadie llama `cacheIP`
+
+**Consecuencia**: En escenario LAN (misma red WiFi), el app SIEMPRE cae a MQTT para todo. Nunca usa HTTP. El LED "Local" nunca se activa en LAN.
+
+**Lo que estaba pasando**: Antes del fix MQTT, los POSTs fallaban con 400 via MQTT pero el error se tragaba silenciosamente y `actualizarLocal` se llamaba igual — el usuario veía las ediciones "guardadas" en la UI pero la EEPROM nunca se actualizaba.
+
+**Lo que dice el usuario**: "La app Android lo hacía automáticamente" — el Android descubría el IP de LAN sin que el usuario tuviera que hacer nada. **Investigar cómo**.
+
+### Cambios UNCOMMITTED de esta sesión (no commitear hasta resolver)
+
+| Archivo | Cambio |
+|---------|--------|
+| `hornoService.ts` | `cacheIP(hornoId, ip)` en el path HTTP exitoso (auto-cache) |
+| `ConfigPage.tsx` | Campo "IP local" manual en sección Horno |
+| `ProgramasPage.tsx` | Mensajes de error mejorados con instrucciones |
+
+Estos cambios están en el working tree pero **sin commit**. Pueden descartarse con `git restore src/`.
+
+### Qué investigar antes de continuar
+
+1. **¿Cómo descubría el IP la app Android?** — Opciones posibles:
+   - El firmware publica su IP en un topic MQTT al conectarse a WiFi (ej: `ceramientas/{id}/info`)
+   - El firmware tiene mDNS/Bonjour y la app Android lo resuelve (el browser no puede)
+   - La app Android escanea la subnet (el browser no puede)
+   - El firmware incluye su IP en la respuesta de algún endpoint MQTT (GET /info, GET /estado)
+   - **Revisar la app Android y el firmware para entender el mecanismo**
+
+2. **¿Es posible replicar ese mecanismo en el browser?** — Si el firmware publica su IP via MQTT, el webapp puede suscribirse y cachearlo. Si es mDNS, no se puede desde browser.
+
+3. **Evaluar si el fix MQTT (propagación de errores) debe mantenerse** — Expone fallas reales pero rompió la UX de edición que "funcionaba" (aunque fuera falso). Alternativa: restaurar silent-fail para ediciones hasta tener HTTP funcionando, pero eso es peligroso (safety issue de temperatura).
+
+### Sesión 2026-07-14 — cambios y cómo revertir
+
+### Cambios aplicados (todos en main, pusheados)
+
+| Commit | Archivo | Qué hace |
+|--------|---------|----------|
+| `f0e87f0` | ProgramasPage | inputs vacíos en modal (valor \|\| '') |
+| `7dda3fe` | ProgramasPage | validación 30–1300°C + re-POST antes de ejecutar |
+| `9053b92` | ProgramasPage | temp mínima 30°C (bajada de 100°C) |
+| `936fdc3` | hornoService + HornoPage | fix MQTT silencioso + revert curva a lógica base |
+| `84be13f` | HornoPage + ProgramasPage | curva idx exacto custom + refetch + error WiFi |
+
+### Si la curva sigue fallando → revertir solo `84be13f`
+
+El commit `84be13f` toca `calcularYGuardarCurva` en HornoPage y el useEffect de carga en ProgramasPage.
+```
+git revert 84be13f --no-edit
+```
+Esto vuelve a la lógica base (busca en todos los programas, fallback a fetch si no hay match). El problema de falso positivo con predefinidos puede reaparecer en casos específicos.
+
+### Si el fix MQTT rompe algo → revertir `936fdc3`
+
+```
+git revert 936fdc3 --no-edit
+```
+Vuelve al MQTT sin check de status (errores firmware silenciosos). El "nombre requerido" vuelve a tragarse pero `actualizarLocal` se llama igual. **No recomendado** porque el bug de seguridad (firmware ignorando edición) vuelve.
+
+### Si los cambios de ProgramasPage rompen la lista → revertir `7dda3fe` y `f0e87f0`
+
+```
+git revert 7dda3fe --no-edit
+git revert f0e87f0 --no-edit
+```
+
+### Estado esperado tras todos los cambios
+- Editar custom **en LAN/AP**: guarda en EEPROM, curva dibuja correcta ✓
+- Editar custom **solo MQTT**: falla con mensaje claro "necesitás estar en la misma red Wi-Fi" ✓
+- Curva custom: siempre usa el idx exacto del último programa ejecutado ✓
+- Lista de programas: se refresca del firmware cada vez que se abre ProgramasPage ✓
 
 ## Pendientes
 

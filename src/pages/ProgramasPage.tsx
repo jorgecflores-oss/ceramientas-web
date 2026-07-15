@@ -127,7 +127,13 @@ export function ProgramasPage() {
       actualizarLocal(editTF.idx, { tempFinal: valor })
       setEditTF(null)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error guardando temperatura')
+      const msg = e instanceof Error ? e.message : 'Error guardando temperatura'
+      const esBugMQTT = msg.toLowerCase().includes('rango') || msg.toLowerCase().includes('tempfinal')
+      if (esBugMQTT) {
+        alert('No se pudo guardar: el horno no está accesible por la red local.\n\nConfigurá la IP del horno en Ajustes → IP local, o conectate al hotspot del horno (red CERAMIENTAS_' + (horno?.hornoId?.slice(-4) ?? '????') + ').')
+      } else {
+        alert(msg)
+      }
     } finally {
       setGuardandoTF(false)
     }
@@ -172,7 +178,7 @@ export function ProgramasPage() {
       // El firmware rechaza el cuerpo MQTT por un bug de parseo (no por nombre inválido).
       // Si el nombre es válido, el problema es que no hay conexión directa.
       if (nombre && msg.toLowerCase().includes('nombre')) {
-        alert('Para guardar programas personalizados necesitás estar conectado a la misma red Wi-Fi que el horno.')
+        alert('No se pudo guardar: el horno no está accesible por la red local.\n\nConfigurá la IP del horno en Ajustes → IP local, o conectate al hotspot del horno (red CERAMIENTAS_' + (horno?.hornoId?.slice(-4) ?? '????') + ').')
       } else {
         alert(msg)
       }
@@ -236,7 +242,7 @@ export function ProgramasPage() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error guardando programa'
       if (nombre && msg.toLowerCase().includes('nombre')) {
-        alert('Para guardar programas personalizados necesitás estar conectado a la misma red Wi-Fi que el horno.')
+        alert('No se pudo guardar: el horno no está accesible por la red local.\n\nConfigurá la IP del horno en Ajustes → IP local, o conectate al hotspot del horno (red CERAMIENTAS_' + (horno?.hornoId?.slice(-4) ?? '????') + ').')
       } else {
         alert(msg)
       }

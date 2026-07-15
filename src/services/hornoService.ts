@@ -143,6 +143,7 @@ export function getCachedIP(hornoId: string): string | null {
 
 const AP_CACHE = new Map<string, { ip: string; ts: number }>()
 const AP_TTL_MS = 60_000
+let _apProbeFailedAt = 0  // negativo-cache: no reintentar probe AP por 60s tras fallo
 
 // Lee IP solo de caché (sin probe AP) — para polling frecuente
 function resolverCachedIP(hornoId: string): string | null {
@@ -153,23 +154,25 @@ function resolverCachedIP(hornoId: string): string | null {
 
 async function resolverIP(hornoId: string): Promise<string | null> {
   const cached = AP_CACHE.get(hornoId)
-  if (cached && Date.now() - cached.ts < AP_TTL_MS) {
-    return cached.ip
-  }
+  if (cached && Date.now() - cached.ts < AP_TTL_MS) return cached.ip
 
-  try {
-    const resp = await fetch(`http://${AP_IP}/info`, {
-      signal: AbortSignal.timeout(500),
-    })
-    if (resp.ok) {
-      const info = await resp.json()
-      if (info.hornoId === hornoId) {
-        AP_CACHE.set(hornoId, { ip: AP_IP, ts: Date.now() })
-        return AP_IP
+  const now = Date.now()
+  if (now - _apProbeFailedAt > AP_TTL_MS) {
+    try {
+      const resp = await fetch(`http://${AP_IP}/info`, {
+        signal: AbortSignal.timeout(500),
+      })
+      if (resp.ok) {
+        const info = await resp.json()
+        if (info.hornoId === hornoId) {
+          AP_CACHE.set(hornoId, { ip: AP_IP, ts: now })
+          return AP_IP
+        }
       }
+      _apProbeFailedAt = now
+    } catch {
+      _apProbeFailedAt = now
     }
-  } catch {
-    // AP no responde, seguir
   }
 
   return getCachedIP(hornoId)
@@ -203,6 +206,7 @@ export async function hornoRequest(
         const firmwareError = (data as { error?: string }).error
         throw new FirmwareError(firmwareError ?? `HTTP ${resp.status}`)
       }
+      cacheIP(hornoId, ip)
       return { status: resp.status, data, via: 'http' }
     } catch (e) {
       // Errores HTTP del firmware (4xx/5xx): propagar, no intentar MQTT
@@ -230,7 +234,8 @@ export async function verificarHornoMQTT(
   try {
     const resp = await mqttRequest(hornoId, 'info', 'GET', undefined, 6000)
     if (resp.status === 200) {
-      const data = resp.data as { nombre?: string; version?: string }
+      const data = resp.data as { nombre?: string; version?: string; ip?: string }
+      if (data.ip) cacheIP(hornoId, data.ip)
       return { ok: true, nombre: data.nombre, version: data.version }
     }
     if (passPrevia) localStorage.setItem(keyPass, passPrevia)
