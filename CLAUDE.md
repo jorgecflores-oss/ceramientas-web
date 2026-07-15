@@ -132,6 +132,9 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-07-14): re-POST pasos antes de ejecutar + STORAGE_KEYS.ULTIMO_PROG
 - Fix (2026-07-14): MQTT silencioso — propagar errores firmware tras mqttRequest
 - Fix (2026-07-14): curva programas custom — idx exacto sin mezclar predefinidos + refetch ProgramasPage
+- Feat (2026-07-15): descubrimiento IP local — firmware publica IP en GET /info, webapp lo cachea al abrir HornoPage
+- Fix (2026-07-15): negativo-cache del probe AP (elimina 500ms de overhead por request en LAN)
+- Fix (2026-07-15): refreshIPCache() en HornoPage — cachea IP sin necesidad de re-vincular tras actualizar firmware
 
 ## Notas arquitectura relevantes
 
@@ -180,94 +183,81 @@ PWA debe funcionar 3 escenarios:
 - `etapa`, `meseta`, `fin`, `alarma_critica`, `alarma_exceso`, `rampa_lenta` → toasts tipados (5s).
 - Corte de luz también se detecta por campo `cl` del estado MQTT (sin necesidad de notif).
 
-## Sesión 2026-07-14 (parte 2) — investigación pendiente
+### Descubrimiento IP local (resuelto 2026-07-15)
 
-### Problema abierto: HTTP nunca funciona en LAN
+El browser no puede recibir UDP (puerto 5005 que usa el Android). Solución en dos partes:
 
-**Hallazgo crítico**: `cacheIP()` está exportada en hornoService pero **nunca se llama desde ningún componente**. `resolverIP()` solo resuelve:
-1. AP mode (192.168.4.1) — cuando el horno funciona como hotspot
-2. Lo que haya en `localStorage` via `getCachedIP` — que siempre es null porque nadie llama `cacheIP`
+**Firmware** (`helperGetInfo`): agrega `"ip":"192.168.x.x"` al response de `GET /info` cuando el ESP32 está conectado a WiFi. Si solo está en modo AP, el campo no aparece.
 
-**Consecuencia**: En escenario LAN (misma red WiFi), el app SIEMPRE cae a MQTT para todo. Nunca usa HTTP. El LED "Local" nunca se activa en LAN.
+**Webapp** (`hornoService.ts`):
+- `resolverIP`: negativo-cachea el fallo del probe AP 60s (elimina 500ms de overhead por request en LAN).
+- `verificarHornoMQTT`: si el response de `/info` incluye `ip`, lo cachea en localStorage.
+- `hornoRequest`: auto-cachea el IP tras cualquier request HTTP exitoso.
+- `refreshIPCache()`: exportada, llama GET /info vía MQTT y cachea el IP sin re-vincular.
 
-**Lo que estaba pasando**: Antes del fix MQTT, los POSTs fallaban con 400 via MQTT pero el error se tragaba silenciosamente y `actualizarLocal` se llamaba igual — el usuario veía las ediciones "guardadas" en la UI pero la EEPROM nunca se actualizaba.
-
-**Lo que dice el usuario**: "La app Android lo hacía automáticamente" — el Android descubría el IP de LAN sin que el usuario tuviera que hacer nada. **Investigar cómo**.
-
-### Cambios UNCOMMITTED de esta sesión (no commitear hasta resolver)
-
-| Archivo | Cambio |
-|---------|--------|
-| `hornoService.ts` | `cacheIP(hornoId, ip)` en el path HTTP exitoso (auto-cache) |
-| `ConfigPage.tsx` | Campo "IP local" manual en sección Horno |
-| `ProgramasPage.tsx` | Mensajes de error mejorados con instrucciones |
-
-Estos cambios están en el working tree pero **sin commit**. Pueden descartarse con `git restore src/`.
-
-### Qué investigar antes de continuar
-
-1. **¿Cómo descubría el IP la app Android?** — Opciones posibles:
-   - El firmware publica su IP en un topic MQTT al conectarse a WiFi (ej: `ceramientas/{id}/info`)
-   - El firmware tiene mDNS/Bonjour y la app Android lo resuelve (el browser no puede)
-   - La app Android escanea la subnet (el browser no puede)
-   - El firmware incluye su IP en la respuesta de algún endpoint MQTT (GET /info, GET /estado)
-   - **Revisar la app Android y el firmware para entender el mecanismo**
-
-2. **¿Es posible replicar ese mecanismo en el browser?** — Si el firmware publica su IP via MQTT, el webapp puede suscribirse y cachearlo. Si es mDNS, no se puede desde browser.
-
-3. **Evaluar si el fix MQTT (propagación de errores) debe mantenerse** — Expone fallas reales pero rompió la UX de edición que "funcionaba" (aunque fuera falso). Alternativa: restaurar silent-fail para ediciones hasta tener HTTP funcionando, pero eso es peligroso (safety issue de temperatura).
-
-### Sesión 2026-07-14 — cambios y cómo revertir
-
-### Cambios aplicados (todos en main, pusheados)
-
-| Commit | Archivo | Qué hace |
-|--------|---------|----------|
-| `f0e87f0` | ProgramasPage | inputs vacíos en modal (valor \|\| '') |
-| `7dda3fe` | ProgramasPage | validación 30–1300°C + re-POST antes de ejecutar |
-| `9053b92` | ProgramasPage | temp mínima 30°C (bajada de 100°C) |
-| `936fdc3` | hornoService + HornoPage | fix MQTT silencioso + revert curva a lógica base |
-| `84be13f` | HornoPage + ProgramasPage | curva idx exacto custom + refetch + error WiFi |
-
-### Si la curva sigue fallando → revertir solo `84be13f`
-
-El commit `84be13f` toca `calcularYGuardarCurva` en HornoPage y el useEffect de carga en ProgramasPage.
-```
-git revert 84be13f --no-edit
-```
-Esto vuelve a la lógica base (busca en todos los programas, fallback a fetch si no hay match). El problema de falso positivo con predefinidos puede reaparecer en casos específicos.
-
-### Si el fix MQTT rompe algo → revertir `936fdc3`
-
-```
-git revert 936fdc3 --no-edit
-```
-Vuelve al MQTT sin check de status (errores firmware silenciosos). El "nombre requerido" vuelve a tragarse pero `actualizarLocal` se llama igual. **No recomendado** porque el bug de seguridad (firmware ignorando edición) vuelve.
-
-### Si los cambios de ProgramasPage rompen la lista → revertir `7dda3fe` y `f0e87f0`
-
-```
-git revert 7dda3fe --no-edit
-git revert f0e87f0 --no-edit
-```
-
-### Estado esperado tras todos los cambios
-- Editar custom **en LAN/AP**: guarda en EEPROM, curva dibuja correcta ✓
-- Editar custom **solo MQTT**: falla con mensaje claro "necesitás estar en la misma red Wi-Fi" ✓
-- Curva custom: siempre usa el idx exacto del último programa ejecutado ✓
-- Lista de programas: se refresca del firmware cada vez que se abre ProgramasPage ✓
+**HornoPage**: llama `refreshIPCache()` al montar, en paralelo con `getConfig`. El flujo de uso garantiza que el IP esté cacheado antes de que el usuario llegue a editar programas.
 
 ## Pendientes
 
 ### Funcionalidad
 
-- **Web Push VAPID** (Fase 3) — notificaciones push reales al cerrar la app.
-- **Cloudflare Worker** (Fase 3) — intermediario para push.
+- **Web Push VAPID** (Fase 3) — notificaciones push cuando la app está cerrada o en background. Ver sección de arquitectura abajo.
 
 ### Técnico
 
 - **Bundle size** — Recharts + MQTT.js son las causas principales. Solución: dynamic import de Recharts (`React.lazy`) para code-split. No es bloqueante pero afecta TTI en conexiones lentas.
 - **Deploy** — actualmente manual (`git push` → GitHub Actions). El workflow ya está en `.github/workflows/deploy.yml`. URL: `https://jorgecflores-oss.github.io/ceramientas-web/`.
+
+## Arquitectura Web Push (Fase 3)
+
+### Qué notifica la app Android (referencia)
+
+Todas disparadas por estado MQTT o topic `/notif`, con deduplicación via cooldown:
+
+| Tipo | Trigger | Cooldown | Mensaje |
+|------|---------|----------|---------|
+| `etapa` | nueva etapa iniciada (edge) | 30s | "Etapa N de M iniciada" |
+| `meseta` | nuevo estado meseta (edge por etapa) | 30s | "Meseta etapa N: temperatura estable" |
+| `fin` | idle/finalizado tras proceso (edge) | 30s | "Horneado finalizado" |
+| `alarma_critica` | estado alarma_critica (edge) | 30s | "¡ALARMA! Temperatura máxima superada" |
+| `alarma_exceso` | estado alarma_exceso (edge) | 30s | "Exceso de temperatura final" |
+| `rampa_lenta` | flag `rl=true` (level, cooldown Inf) | ∞ | "E{n} calienta lento: {t}°C de {obj}°C" |
+| `rampa_rapida` | flag `rr=true` (level, cooldown Inf) | ∞ | "⚡ PELIGRO E{n}: rampa acelerada" |
+| `corte_luz` | flag `cl=true` o topic `/notif` | 30s | "⚡ Corte de luz detectado" |
+| `detenido` | idle tras proceso, gap < 10s (edge) | 30s | "Proceso detenido manualmente" |
+
+### Arquitectura propuesta
+
+```
+Firmware ESP32
+    └── MQTT topic ceramientas/{id}/notif + estado
+            └── Cloudflare Worker (suscripto al broker HiveMQ)
+                    └── Web Push API → browser del usuario
+```
+
+**Cloudflare Worker** (worker independiente, no en la webapp):
+- Se suscribe al broker MQTT HiveMQ via WebSocket.
+- Escucha `ceramientas/+/estado` y `ceramientas/+/notif`.
+- Detecta los eventos listados arriba (misma lógica de deduplicación que HornoScreen.js).
+- Guarda subscripciones push en KV: `{hornoId} → [PushSubscription]`.
+- Dispara `webpush.sendNotification()` a cada subscripción registrada.
+
+**Webapp** (cliente):
+- Registra Service Worker con `pushManager.subscribe()`.
+- Envía la `PushSubscription` al Worker via HTTP POST `/api/subscribe`.
+- El Service Worker recibe el push y muestra la notificación nativa del OS.
+
+### Endpoint del Worker
+
+```
+POST /api/subscribe   { hornoId, subscription: PushSubscription }  → 200
+DELETE /api/subscribe { hornoId, endpoint }                        → 200
+```
+
+### VAPID keys
+
+Generar una vez con `npx web-push generate-vapid-keys`, guardar en secrets de Cloudflare.
+La clave pública va hardcodeada en la webapp (constante en `constants.ts`).
 
 ## Repo
 
