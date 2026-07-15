@@ -67,13 +67,12 @@ export function ProgramasPage() {
 
   useEffect(() => {
     if (!horno?.hornoId) return
-    if (programas.length > 0) return
     setCargando(true)
     fetchProgramasOnce(horno.hornoId)
       .then(p => setProgramas(p))
       .catch(e => setError(String(e)))
       .finally(() => setCargando(false))
-  }, [horno?.hornoId, programas.length, setProgramas])
+  }, [horno?.hornoId, setProgramas])
 
   function slotLibre(): number | null {
     for (let i = 4; i <= 23; i++) {
@@ -169,7 +168,14 @@ export function ProgramasPage() {
       actualizarLocal(editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
       setEditPasos(null)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error guardando pasos')
+      const msg = e instanceof Error ? e.message : 'Error guardando pasos'
+      // El firmware rechaza el cuerpo MQTT por un bug de parseo (no por nombre inválido).
+      // Si el nombre es válido, el problema es que no hay conexión directa.
+      if (nombre && msg.toLowerCase().includes('nombre')) {
+        alert('Para guardar programas personalizados necesitás estar conectado a la misma red Wi-Fi que el horno.')
+      } else {
+        alert(msg)
+      }
     } finally {
       setGuardandoPasos(false)
     }
@@ -228,7 +234,12 @@ export function ProgramasPage() {
       actualizarLocal(slot, { nombre, pasos: pasosParaFirmware, tempFinal })
       setNuevoPrograma(null)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Error guardando programa')
+      const msg = e instanceof Error ? e.message : 'Error guardando programa'
+      if (nombre && msg.toLowerCase().includes('nombre')) {
+        alert('Para guardar programas personalizados necesitás estar conectado a la misma red Wi-Fi que el horno.')
+      } else {
+        alert(msg)
+      }
     } finally {
       setGuardandoNuevo(false)
     }

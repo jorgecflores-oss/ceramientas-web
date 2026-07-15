@@ -7,6 +7,7 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
+import { STORAGE_KEYS } from '../utils/constants'
 import type { PuntoCurva } from '../types/horno'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
@@ -250,14 +251,40 @@ export function HornoPage() {
       useHornoStore.getState().limpiarSnapshot(hornoId)
     }
 
-    aplicarCurva(programas)
+    // Si el último ejecutado fue un programa custom (idx ≥ 4), buscarlo
+    // directamente sin mezclar con predefinidos (que podrían tener igual
+    // cantidad de pasos y temperatura objetivo y generar un falso positivo).
+    const idxStr = localStorage.getItem(STORAGE_KEYS.ULTIMO_PROG(hornoId))
+    const idxExacto = idxStr !== null ? parseInt(idxStr, 10) : -1
+    const esCustom = idxExacto >= 4
 
-    if (!matchPrograma(programas, etapaTotal, etapa, tempObj)) {
-      try {
-        const progs = await getProgramas(hornoId)
-        aplicarCurva(progs)
-      } catch (e) {
-        console.error('[CURVA_TEORICA] error', e)
+    if (esCustom) {
+      const progLocal = programas[idxExacto]
+      if (progLocal && matchPrograma([progLocal], etapaTotal, etapa, tempObj)) {
+        aplicarCurva([progLocal])
+      } else {
+        // Estado local obsoleto o inexistente → traer del firmware
+        try {
+          const progs = await getProgramas(hornoId)
+          const progFirmware = progs[idxExacto]
+          if (progFirmware && matchPrograma([progFirmware], etapaTotal, etapa, tempObj)) {
+            aplicarCurva([progFirmware])
+          } else {
+            aplicarCurva(progs)
+          }
+        } catch (e) {
+          console.error('[CURVA_TEORICA] error', e)
+        }
+      }
+    } else {
+      aplicarCurva(programas)
+      if (!matchPrograma(programas, etapaTotal, etapa, tempObj)) {
+        try {
+          const progs = await getProgramas(hornoId)
+          aplicarCurva(progs)
+        } catch (e) {
+          console.error('[CURVA_TEORICA] error', e)
+        }
       }
     }
   }
