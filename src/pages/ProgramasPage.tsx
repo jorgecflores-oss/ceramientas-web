@@ -550,13 +550,15 @@ export function ProgramasPage() {
                     </div>
                     <input
                       type="number"
-                      value={paso.temperatura}
+                      value={paso.temperatura || ''}
+                      placeholder="0"
                       onChange={e => editarPaso(origIdx, 'temperatura', e.target.value)}
                       className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
                     <input
                       type="number"
-                      value={paso.tiempo}
+                      value={paso.tiempo || ''}
+                      placeholder="0"
                       onChange={e => editarPaso(origIdx, 'tiempo', e.target.value)}
                       className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
