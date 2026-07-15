@@ -156,9 +156,9 @@ export function ProgramasPage() {
     const nombre = editPasos.nombre.trim()
     if (!nombre) { alert('El nombre no puede estar vacío'); return }
     const activos = editPasos.pasos.filter(pasoActivo)
-    const invalido = activos.find(p => p.temperatura < 100 || p.temperatura > 1300)
+    const invalido = activos.find(p => p.temperatura < 30 || p.temperatura > 1300)
     if (invalido) {
-      alert(`Temperatura inválida: ${invalido.temperatura}°C (rango 100–1300°C)`)
+      alert(`Temperatura inválida: ${invalido.temperatura}°C (rango 30–1300°C)`)
       return
     }
     feedbackBoton()
