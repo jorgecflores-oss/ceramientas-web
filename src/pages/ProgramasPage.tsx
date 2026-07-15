@@ -94,6 +94,16 @@ export function ProgramasPage() {
     if (!horno) return
     feedbackBoton()
     localStorage.setItem(STORAGE_KEYS.ULTIMO_PROG(horno.hornoId), String(idx))
+    // Programas custom: re-enviar pasos al firmware antes de ejecutar para garantizar
+    // que la EEPROM tiene los datos actuales (la escritura puede tener lag).
+    if (idx >= 4 && programas[idx]) {
+      const p = programas[idx]
+      try {
+        await postPrograma(horno.hornoId, idx, { nombre: p.nombre, pasos: p.pasos })
+      } catch {
+        // Si falla, ejecutar igual — el usuario ya guardó antes
+      }
+    }
     const ok = publicarComando(horno.hornoId, `ejecutar:${idx}`)
     if (!ok) {
       try {
@@ -145,6 +155,12 @@ export function ProgramasPage() {
     if (!editPasos || !horno?.hornoId) return
     const nombre = editPasos.nombre.trim()
     if (!nombre) { alert('El nombre no puede estar vacío'); return }
+    const activos = editPasos.pasos.filter(pasoActivo)
+    const invalido = activos.find(p => p.temperatura < 100 || p.temperatura > 1300)
+    if (invalido) {
+      alert(`Temperatura inválida: ${invalido.temperatura}°C (rango 100–1300°C)`)
+      return
+    }
     feedbackBoton()
     setGuardandoPasos(true)
     try {

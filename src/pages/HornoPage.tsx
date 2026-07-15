@@ -322,6 +322,15 @@ export function HornoPage() {
   const temp = estado?.temperatura ?? 0
   const tempObj = estado?.tempObj ?? 0
   const estadoTxt = estado?.estado ?? 'sin datos'
+  // Temperatura objetivo de la etapa actual según datos locales (evita inconsistencia con EEPROM lag)
+  const tempObjDisplay = (() => {
+    if (!programaActivo || !estado) return tempObj
+    const etapaIdx = Math.max(0, estado.etapa - 1)
+    const activos = programaActivo.pasos.filter(
+      (p) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
+    )
+    return etapaIdx < activos.length ? activos[etapaIdx].temperatura : tempObj
+  })()
   const enProceso =
     estadoTxt === 'ejecutando' ||
     estadoTxt === 'rampa' ||
@@ -378,8 +387,8 @@ export function HornoPage() {
       <div className="bg-neutral-900 rounded-2xl mb-6 border border-neutral-800 overflow-hidden">
         <div className="p-6 text-center">
           <p className="text-6xl font-bold">{temp}<span className="text-2xl text-neutral-400 align-top">°C</span></p>
-          {tempObj > 0 && (
-            <p className="text-sm text-neutral-400 mt-2">objetivo: {tempObj}°C</p>
+          {tempObjDisplay > 0 && (
+            <p className="text-sm text-neutral-400 mt-2">objetivo: {tempObjDisplay}°C</p>
           )}
         </div>
 
@@ -397,9 +406,9 @@ export function HornoPage() {
                 {' — '}
                 {estadoTxt === 'meseta'
                   ? (mesetaActual
-                      ? `Meseta a ${estado?.tempObj ?? 0}°C — faltan ${mesetaActual.restanteMin} min`
-                      : `Meseta a ${estado?.tempObj ?? 0}°C`)
-                  : `Rampa hasta ${estado?.tempObj ?? 0}°C`}
+                      ? `Meseta a ${tempObjDisplay}°C — faltan ${mesetaActual.restanteMin} min`
+                      : `Meseta a ${tempObjDisplay}°C`)
+                  : `Rampa hasta ${tempObjDisplay}°C`}
               </p>
             </div>
 
