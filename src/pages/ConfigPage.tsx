@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP, cacheIP } from '../services/hornoService'
+import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
 import { AP_IP } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
@@ -37,10 +37,6 @@ export function ConfigPage({ onAgregarHorno }: Props) {
 
   const [wifiStep, setWifiStep] = useState<WifiStep>(null)
   const [wifiUrl, setWifiUrl] = useState('')
-
-  const [editandoIP, setEditandoIP] = useState(false)
-  const [ipInput, setIpInput] = useState('')
-  const ipActual = horno?.hornoId ? getCachedIP(horno.hornoId) : null
 
   useEffect(() => {
     if (!horno?.hornoId) return
@@ -357,47 +353,6 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                 </div>
                 <span className="text-neutral-600">›</span>
               </button>
-
-              <div className="flex items-center gap-4 py-3 border-b border-neutral-800">
-                <span className="text-2xl">🌐</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-semibold">IP local</p>
-                  {editandoIP ? (
-                    <div className="flex items-center gap-2 mt-1">
-                      <input
-                        type="text"
-                        value={ipInput}
-                        onChange={e => setIpInput(e.target.value)}
-                        placeholder="192.168.1.50"
-                        autoFocus
-                        className="flex-1 min-w-0 px-2 py-1 bg-neutral-800 border border-orange-500 rounded text-white text-xs font-mono focus:outline-none"
-                      />
-                      <button
-                        onClick={() => {
-                          if (horno?.hornoId) cacheIP(horno.hornoId, ipInput.trim())
-                          setEditandoIP(false)
-                        }}
-                        className="px-2 py-1 bg-orange-500 hover:bg-orange-600 rounded text-xs font-bold shrink-0"
-                      >
-                        OK
-                      </button>
-                      <button
-                        onClick={() => setEditandoIP(false)}
-                        className="px-1 py-1 text-neutral-400 hover:text-white text-xs shrink-0"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => { setIpInput(ipActual ?? ''); setEditandoIP(true) }}
-                      className="text-xs font-mono text-orange-400 hover:text-orange-300 mt-0.5 text-left"
-                    >
-                      {ipActual ?? 'No configurada — tocá para configurar'} ✎
-                    </button>
-                  )}
-                </div>
-              </div>
 
               <button
                 onClick={abrirConfigWifi}
