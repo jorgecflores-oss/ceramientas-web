@@ -7,7 +7,6 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
-import { STORAGE_KEYS } from '../utils/constants'
 import type { PuntoCurva } from '../types/horno'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
@@ -232,12 +231,9 @@ export function HornoPage() {
       if (fresco) tempObj = fresco.tempObj
     }
 
-    const aplicarCurva = (progs: typeof programas): boolean => {
-      // Match exacto primero; si falla (ej. programa 1 paso con temp editada vs EEPROM vieja),
-      // match lenient por cantidad de pasos.
+    const aplicarCurva = (progs: typeof programas) => {
       const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
-        ?? matchPrograma(progs, etapaTotal, etapa, 0)
-      if (!match) return false
+      if (!match) return
       if (esNuevo) {
         const puntos = calcularCurvaTeorica(match.pasos, tempCapture, tCapture)
         setCurvaTeorica(match, puntos, tCapture, tempCapture)
@@ -246,7 +242,6 @@ export function HornoPage() {
         const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
         setCurvaTeorica(match, puntos, t0Virtual, 20)
       }
-      return true
     }
 
     if (esNuevo) {
@@ -255,16 +250,9 @@ export function HornoPage() {
       useHornoStore.getState().limpiarSnapshot(hornoId)
     }
 
-    // Si conocemos el idx exacto del programa (guardado al ejecutar), intentarlo primero.
-    // Evita que el match genérico elija el programa incorrecto cuando varios tienen la misma
-    // cantidad de pasos (ej. predefinido 1060°C vs custom 200°C, ambos de 1 paso).
-    const idxStr = localStorage.getItem(STORAGE_KEYS.ULTIMO_PROG(hornoId))
-    const idxExacto = idxStr !== null ? parseInt(idxStr, 10) : -1
-    const dibujado =
-      (idxExacto >= 0 && !!programas[idxExacto] && aplicarCurva([programas[idxExacto]]))
-      || aplicarCurva(programas)
+    aplicarCurva(programas)
 
-    if (!dibujado && programas.length === 0) {
+    if (!matchPrograma(programas, etapaTotal, etapa, tempObj)) {
       try {
         const progs = await getProgramas(hornoId)
         aplicarCurva(progs)
@@ -322,15 +310,6 @@ export function HornoPage() {
   const temp = estado?.temperatura ?? 0
   const tempObj = estado?.tempObj ?? 0
   const estadoTxt = estado?.estado ?? 'sin datos'
-  // Temperatura objetivo de la etapa actual según datos locales (evita inconsistencia con EEPROM lag)
-  const tempObjDisplay = (() => {
-    if (!programaActivo || !estado) return tempObj
-    const etapaIdx = Math.max(0, estado.etapa - 1)
-    const activos = programaActivo.pasos.filter(
-      (p) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
-    )
-    return etapaIdx < activos.length ? activos[etapaIdx].temperatura : tempObj
-  })()
   const enProceso =
     estadoTxt === 'ejecutando' ||
     estadoTxt === 'rampa' ||
@@ -387,8 +366,8 @@ export function HornoPage() {
       <div className="bg-neutral-900 rounded-2xl mb-6 border border-neutral-800 overflow-hidden">
         <div className="p-6 text-center">
           <p className="text-6xl font-bold">{temp}<span className="text-2xl text-neutral-400 align-top">°C</span></p>
-          {tempObjDisplay > 0 && (
-            <p className="text-sm text-neutral-400 mt-2">objetivo: {tempObjDisplay}°C</p>
+          {tempObj > 0 && (
+            <p className="text-sm text-neutral-400 mt-2">objetivo: {tempObj}°C</p>
           )}
         </div>
 
@@ -406,9 +385,9 @@ export function HornoPage() {
                 {' — '}
                 {estadoTxt === 'meseta'
                   ? (mesetaActual
-                      ? `Meseta a ${tempObjDisplay}°C — faltan ${mesetaActual.restanteMin} min`
-                      : `Meseta a ${tempObjDisplay}°C`)
-                  : `Rampa hasta ${tempObjDisplay}°C`}
+                      ? `Meseta a ${tempObj}°C — faltan ${mesetaActual.restanteMin} min`
+                      : `Meseta a ${tempObj}°C`)
+                  : `Rampa hasta ${tempObj}°C`}
               </p>
             </div>
 

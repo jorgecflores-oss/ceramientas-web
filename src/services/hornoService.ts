@@ -212,6 +212,11 @@ export async function hornoRequest(
   }
 
   const resultado = await mqttRequest(hornoId, path, method, body)
+  // Propagar errores del firmware igual que en la ruta HTTP
+  if (resultado.status >= 400) {
+    const errData = resultado.data as { error?: string }
+    throw new FirmwareError(errData?.error ?? `Error ${resultado.status}`)
+  }
   return { ...resultado, via: 'mqtt' }
 }
 
