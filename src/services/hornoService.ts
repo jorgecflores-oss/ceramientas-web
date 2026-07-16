@@ -83,25 +83,8 @@ export async function getPrograma(hornoId: string, idx: number): Promise<Program
 }
 
 export async function postOTA(hornoId: string): Promise<{ ok: boolean; msg?: string }> {
-  const ip = await resolverIP(hornoId)
-  if (!ip) throw new Error('No se pudo encontrar el horno')
-  const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId)) ?? ''
-  const doPost = (pass: string) => fetchTimeout(`http://${ip}/ota`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Auth': pass },
-    body: JSON.stringify({}),
-  })
-  let resp = await doPost(password)
-  if (resp.status === 401) {
-    const passDefault = hornoId.slice(-6).toLowerCase()
-    if (password !== passDefault) {
-      resp = await doPost(passDefault)
-      if (resp.ok) localStorage.setItem(STORAGE_KEYS.PASS(hornoId), passDefault)
-    }
-  }
-  const json = await resp.json().catch(() => ({})) as { ok?: boolean; msg?: string; error?: string }
-  if (!resp.ok) throw new Error(json.error ?? `Error HTTP ${resp.status}`)
-  return json as { ok: boolean; msg?: string }
+  const result = await hornoRequest(hornoId, 'ota', 'POST', JSON.stringify({}))
+  return result.data as { ok: boolean; msg?: string }
 }
 
 export async function getOTAStatus(hornoId: string): Promise<{
