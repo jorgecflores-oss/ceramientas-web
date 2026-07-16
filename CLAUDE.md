@@ -138,6 +138,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-07-15): refreshIPCache() en HornoPage — cachea IP sin necesidad de re-vincular tras actualizar firmware
 - Feat (2026-07-15): Web Push — push-worker/ (Cloudflare Worker + Durable Object MQTT→push), src/sw.ts, pushService.ts, botón campana HornoPage
 - Feat (2026-07-15): Notificaciones ntfy.sh — firmware HTTP POST a ntfy.sh en paralelo a MQTT; botón campana abre ntfy.sh/ceramientas-{hornoId} para suscribirse sin servidor
+- Fix (2026-07-15): UX notificaciones — elimina botón campana; modal ntfy se muestra automáticamente la primera vez por hornoId (flag localStorage); instrucciones paso a paso para descargar y configurar la app ntfy
 
 ## Notas arquitectura relevantes
 
@@ -205,6 +206,7 @@ El browser no puede recibir UDP (puerto 5005 que usa el Android). Solución en d
 ### Funcionalidad
 
 - **Deploy servidor push** (opcional, futuro) — Para integrar push nativo en la webapp, deployar `push-server/` en Fly.io o activar `push-worker/` en Cloudflare Workers Paid ($5/mes). Por ahora las notificaciones funcionan vía ntfy.sh (gratis, sin servidor).
+- **Firmware: texto notificación corte_luz** — El mensaje que manda `enviarNotifNtfy()` para `corte_luz` debería indicarle al usuario que abra la app para decidir si continuar o detener el programa. El modal de continuar/detener solo aparece cuando la app está abierta; si está cerrada, la notificación ntfy llega pero no dice qué hacer.
 
 ### Técnico
 
@@ -265,22 +267,38 @@ Deploy: `fly launch` + `fly secret set VAPID_* MQTT_*` + `fly deploy` desde `pus
 
 - `src/sw.ts` — Service Worker personalizado (injectManifest): precaching + handler `push` + handler `notificationclick`
 - `src/services/pushService.ts` — `requestPushPermission`, `suscribirPush`, `desuscribirPush`, `pushSuscripto`, `refreshPushSubscription` (re-registra en servidor al abrir la app, maneja reinicios)
-- `src/pages/HornoPage.tsx` — botón campana en header; comportamiento dual según `PUSH_WORKER_URL`
+- `src/pages/HornoPage.tsx` — modal ntfy automático al montar (primera vez por hornoId); sin botón campana. Cuando se active `PUSH_WORKER_URL`, agregar botón y lógica Web Push.
 - `src/utils/constants.ts` — `VAPID_PUBLIC_KEY` (hardcodeada) + `PUSH_WORKER_URL` (vacío = modo ntfy.sh activo)
 - `vite.config.ts` — cambiado de `generateSW` a `injectManifest` para soportar SW personalizado
 
-### Comportamiento del botón campana (HornoPage)
+### UX notificaciones (HornoPage)
 
-- **`PUSH_WORKER_URL === ''` (actual)**: toca campana → abre `https://ntfy.sh/ceramientas-{hornoId}` en nueva pestaña. El usuario se suscribe ahí para recibir notificaciones del OS vía ntfy.sh.
-- **`PUSH_WORKER_URL !== ''` (futuro)**: toca campana → flow Web Push nativo (requestPermission → pushManager.subscribe → POST al servidor). `pushActivo` refleja el estado real de la suscripción.
+**Actual (ntfy.sh, sin servidor):**
+- Al montar HornoPage, si no existe `@ceramientas_ntfy_shown_{hornoId}` en localStorage → muestra modal automáticamente.
+- Modal tiene 3 pasos: descargar app ntfy (gratis, sin cuenta) → copiar nombre del horno → abrir ntfy, tap "+", pegar nombre, suscribirse.
+- Al cerrar con "Listo, lo configuro después" → graba la flag, no vuelve a aparecer para ese hornoId.
+- Si el usuario vincula un horno nuevo, aparece de nuevo para ese nuevo hornoId.
+
+**Futuro (Web Push nativo, cuando `PUSH_WORKER_URL !== ''`):**
+- Agregar botón campana en header + lógica `togglePush` (requestPermission → pushManager.subscribe → POST al servidor).
+- `pushActivo` refleja el estado real de la suscripción.
 
 ### Notificaciones actuales: ntfy.sh (gratis, sin servidor)
 
 El firmware hace HTTP POST a `https://ntfy.sh/ceramientas-{HORNO_ID}` en paralelo a cada publish MQTT de `/notif`.
-El botón campana en HornoPage abre `https://ntfy.sh/ceramientas-{hornoId}` para que el usuario se suscriba.
-No requiere cuenta ni servidor. Límite free tier: 250 mensajes/día por topic (más que suficiente).
+No requiere cuenta ni servidor. Límite free tier: 250 mensajes/día por topic (más que suficiente para cualquier horneada).
 
-Para recibir notificaciones: visitar el link que abre la campana → "Subscribe" en el browser, o instalar la app ntfy.sh en el celular.
+**Eventos notificados por el firmware** (no hay notificación de inicio — el usuario lo arrancó, ya lo sabe):
+- `etapa` — cambio de etapa (rampa siguiente)
+- `meseta` — meseta alcanzada
+- `fin` — horneada finalizada
+- `corte_luz` — corte de luz detectado, suministro reestablecido
+- `rampa_lenta` — temperatura sube más despacio de lo programado
+- `rampa_rapida` — temperatura sube más rápido de lo programado (alarma)
+- `alarma_critica` — temperatura máxima superada
+- `alarma_exceso` — exceso de temperatura final
+
+Para recibir notificaciones: instalar app ntfy en el celular (gratis, sin cuenta) → suscribirse al topic `ceramientas-{hornoId}`. Las notificaciones llegan aunque la app ntfy esté cerrada y la pantalla apagada.
 
 ### Escalabilidad
 
@@ -292,7 +310,7 @@ HiveMQ Free: 100 conexiones concurrentes → al llegar a ~80 hornos vendidos, mi
 Cuando se quiera eliminar la dependencia de ntfy.sh y tener push integrado:
 1. Deployar `push-server/` (Node.js) en Fly.io o similar, O activar `push-worker/` en Cloudflare Workers Paid
 2. Completar `PUSH_WORKER_URL` en `src/utils/constants.ts`
-3. El botón campana automáticamente cambia de comportamiento (ntfy.sh → push nativo)
+3. Agregar botón campana en HornoPage con lógica Web Push (ver sección "UX notificaciones")
 
 ## Repo
 
