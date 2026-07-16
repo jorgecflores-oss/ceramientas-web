@@ -7,8 +7,7 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
-import { STORAGE_KEYS, PUSH_WORKER_URL } from '../utils/constants'
-import { requestPushPermission, suscribirPush, desuscribirPush, pushSuscripto, refreshPushSubscription } from '../services/pushService'
+import { STORAGE_KEYS } from '../utils/constants'
 import type { PuntoCurva } from '../types/horno'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
@@ -70,8 +69,6 @@ export function HornoPage() {
   const [modalRampaRapida, setModalRampaRapida] = useState(false)
   const [modalNtfy, setModalNtfy]               = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; tipo: 'info' | 'warn' | 'error' }[]>([])
-  const [pushActivo, setPushActivo] = useState(false)
-  const [pushCargando, setPushCargando] = useState(false)
 
   useEffect(() => {
     if (!horno) return
@@ -88,13 +85,11 @@ export function HornoPage() {
     loadCurvaFromStorage()
   }, [loadCurvaFromStorage])
 
-  // Verificar si ya está suscripto a push al montar; si sí, re-registrar en el servidor
+  // Mostrar instrucciones ntfy la primera vez que se abre con este horno
   useEffect(() => {
-    pushSuscripto().then(activo => {
-      setPushActivo(activo)
-      if (activo && horno?.hornoId) refreshPushSubscription(horno.hornoId)
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!horno?.hornoId) return
+    const key = `@ceramientas_ntfy_shown_${horno.hornoId}`
+    if (!localStorage.getItem(key)) setModalNtfy(true)
   }, [horno?.hornoId])
 
   useEffect(() => {
@@ -346,28 +341,6 @@ export function HornoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado?.estado])
 
-  async function togglePush() {
-    if (!horno) return
-    if (!PUSH_WORKER_URL) {
-      setModalNtfy(true)
-      return
-    }
-    setPushCargando(true)
-    try {
-      if (pushActivo) {
-        await desuscribirPush(horno.hornoId)
-        setPushActivo(false)
-      } else {
-        const ok = await requestPushPermission()
-        if (!ok) return
-        const suscripto = await suscribirPush(horno.hornoId)
-        setPushActivo(suscripto)
-      }
-    } finally {
-      setPushCargando(false)
-    }
-  }
-
   if (!horno) return null
 
   const temp = estado?.temperatura ?? 0
@@ -406,18 +379,6 @@ export function HornoPage() {
             <p className="text-sm text-neutral-400 mt-1">{horno.potencia} W</p>
           )}
         </div>
-        {'Notification' in window && (
-          <button
-            onClick={togglePush}
-            disabled={pushCargando}
-            className={`mt-1 p-2 rounded-xl transition-colors ${pushActivo ? 'bg-orange-500 text-white' : 'bg-neutral-800 text-neutral-400'}`}
-            title={pushActivo ? 'Desactivar notificaciones' : 'Activar notificaciones'}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
-            </svg>
-          </button>
-        )}
       </header>
 
       <div className="mb-6 bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-3">
@@ -617,49 +578,62 @@ export function HornoPage() {
     {modalNtfy && horno && (
       <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
         <div className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 max-w-sm w-full">
-          <h2 className="text-lg font-bold text-white mb-2">Activar notificaciones</h2>
-          <p className="text-sm text-neutral-300 mb-4">
-            Recibí alertas del horno aunque la app esté cerrada, usando la app gratuita <strong>ntfy</strong>.
-          </p>
-          <div className="bg-neutral-800 rounded-xl px-4 py-3 mb-4">
-            <p className="text-xs text-neutral-400 mb-1">Tu canal de notificaciones:</p>
-            <p className="text-orange-400 font-mono text-sm break-all">
-              ceramientas-{horno.hornoId}
-            </p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <a
-              href={`https://ntfy.sh/ceramientas-${horno.hornoId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setModalNtfy(false)}
-              className="py-3 bg-orange-500 hover:bg-orange-600 active:scale-95 rounded-xl text-white font-bold text-center transition-all duration-75"
-            >
-              Abrir en el browser
-            </a>
-            <p className="text-xs text-neutral-400 text-center">
-              En la página que se abre, tocá <strong>"Subscribe"</strong> y permitís las notificaciones.
-            </p>
-            <div className="border-t border-neutral-700 pt-3">
-              <p className="text-xs text-neutral-400 text-center mb-2">O descargá la app ntfy en tu celular:</p>
-              <div className="flex gap-2">
-                <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener noreferrer"
-                  className="flex-1 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-xl text-white text-xs text-center transition-colors">
-                  Android
-                </a>
-                <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener noreferrer"
-                  className="flex-1 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-xl text-white text-xs text-center transition-colors">
-                  iPhone
-                </a>
+          <h2 className="text-lg font-bold text-white mb-1">Recibí alertas del horno</h2>
+          <p className="text-xs text-neutral-400 mb-4">Te avisamos cuando termina, si hay corte de luz, o alguna alarma.</p>
+
+          <div className="flex flex-col gap-4 mb-5">
+            <div className="flex gap-3">
+              <span className="w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+              <div>
+                <p className="text-sm text-white font-medium mb-1">Instalá la app ntfy</p>
+                <div className="flex gap-2">
+                  <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener noreferrer"
+                    className="flex-1 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white text-xs text-center transition-colors">
+                    Android
+                  </a>
+                  <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener noreferrer"
+                    className="flex-1 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white text-xs text-center transition-colors">
+                    iPhone
+                  </a>
+                </div>
               </div>
             </div>
-            <button
-              onClick={() => setModalNtfy(false)}
-              className="py-2 text-sm text-neutral-500 hover:text-neutral-300 transition-colors"
-            >
-              Cerrar
-            </button>
+
+            <div className="flex gap-3">
+              <span className="w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+              <div className="flex-1">
+                <p className="text-sm text-white font-medium mb-1">Copiá este nombre</p>
+                <div className="bg-neutral-800 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                  <p className="text-orange-400 font-mono text-xs break-all">
+                    ceramientas-{horno.hornoId}
+                  </p>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(`ceramientas-${horno.hornoId}`)}
+                    className="shrink-0 text-xs text-neutral-400 hover:text-white bg-neutral-700 px-2 py-1 rounded-lg transition-colors"
+                  >
+                    Copiar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <span className="w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+              <div>
+                <p className="text-sm text-white font-medium">Abrí ntfy → tocá <strong>"+"</strong> → pegá el nombre</p>
+              </div>
+            </div>
           </div>
+
+          <button
+            onClick={() => {
+              if (horno?.hornoId) localStorage.setItem(`@ceramientas_ntfy_shown_${horno.hornoId}`, '1')
+              setModalNtfy(false)
+            }}
+            className="w-full py-2 text-sm text-neutral-500 hover:text-neutral-300 transition-colors"
+          >
+            Entendido
+          </button>
         </div>
       </div>
     )}
