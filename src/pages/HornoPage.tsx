@@ -578,38 +578,42 @@ export function HornoPage() {
     {modalNtfy && horno && (
       <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
         <div className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 max-w-sm w-full">
-          <h2 className="text-lg font-bold text-white mb-1">Recibí alertas del horno</h2>
-          <p className="text-xs text-neutral-400 mb-4">Te avisamos cuando termina, si hay corte de luz, o alguna alarma.</p>
+          <h2 className="text-lg font-bold text-white mb-1">Activá las alertas en tu celular</h2>
+          <p className="text-sm text-neutral-400 mb-5">El horno te avisa cuando termina, si hay corte de luz o alguna alarma — aunque tengas la pantalla apagada.</p>
 
-          <div className="flex flex-col gap-4 mb-5">
+          <div className="flex flex-col gap-5 mb-6">
+
+            {/* Paso 1 */}
             <div className="flex gap-3">
               <span className="w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
-              <div>
-                <p className="text-sm text-white font-medium mb-1">Instalá la app ntfy</p>
+              <div className="flex-1">
+                <p className="text-sm text-white font-semibold mb-0.5">Descargá la app <em>ntfy</em></p>
+                <p className="text-xs text-neutral-400 mb-2">Es gratis y no necesitás crear una cuenta.</p>
                 <div className="flex gap-2">
                   <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener noreferrer"
-                    className="flex-1 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white text-xs text-center transition-colors">
-                    Android
+                    className="flex-1 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-xl text-white text-xs text-center font-medium transition-colors">
+                    Descargar para Android
                   </a>
                   <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener noreferrer"
-                    className="flex-1 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white text-xs text-center transition-colors">
-                    iPhone
+                    className="flex-1 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-xl text-white text-xs text-center font-medium transition-colors">
+                    Descargar para iPhone
                   </a>
                 </div>
               </div>
             </div>
 
+            {/* Paso 2 */}
             <div className="flex gap-3">
               <span className="w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
               <div className="flex-1">
-                <p className="text-sm text-white font-medium mb-1">Copiá este nombre</p>
-                <div className="bg-neutral-800 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
-                  <p className="text-orange-400 font-mono text-xs break-all">
+                <p className="text-sm text-white font-semibold mb-2">Copiá el nombre de tu horno</p>
+                <div className="bg-neutral-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-2">
+                  <p className="text-orange-400 font-mono text-xs break-all select-all">
                     ceramientas-{horno.hornoId}
                   </p>
                   <button
                     onClick={() => navigator.clipboard.writeText(`ceramientas-${horno.hornoId}`)}
-                    className="shrink-0 text-xs text-neutral-400 hover:text-white bg-neutral-700 px-2 py-1 rounded-lg transition-colors"
+                    className="shrink-0 text-xs text-neutral-300 bg-neutral-600 hover:bg-neutral-500 px-3 py-1.5 rounded-lg transition-colors font-medium"
                   >
                     Copiar
                   </button>
@@ -617,12 +621,19 @@ export function HornoPage() {
               </div>
             </div>
 
+            {/* Paso 3 */}
             <div className="flex gap-3">
               <span className="w-6 h-6 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
               <div>
-                <p className="text-sm text-white font-medium">Abrí ntfy → tocá <strong>"+"</strong> → pegá el nombre</p>
+                <p className="text-sm text-white font-semibold mb-2">Configurá la app</p>
+                <ol className="flex flex-col gap-1">
+                  <li className="text-xs text-neutral-300">Abrí <strong>ntfy</strong> en tu celular</li>
+                  <li className="text-xs text-neutral-300">Tocá el botón <strong>"+"</strong> (abajo a la derecha)</li>
+                  <li className="text-xs text-neutral-300">Pegá el nombre que copiaste y tocá <strong>Suscribirse</strong></li>
+                </ol>
               </div>
             </div>
+
           </div>
 
           <button
@@ -630,9 +641,9 @@ export function HornoPage() {
               if (horno?.hornoId) localStorage.setItem(`@ceramientas_ntfy_shown_${horno.hornoId}`, '1')
               setModalNtfy(false)
             }}
-            className="w-full py-2 text-sm text-neutral-500 hover:text-neutral-300 transition-colors"
+            className="w-full py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold text-sm transition-all duration-75"
           >
-            Entendido
+            Listo, lo configuro después
           </button>
         </div>
       </div>
