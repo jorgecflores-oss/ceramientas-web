@@ -1,0 +1,15 @@
+{
+  "name": "ceramientas-push-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "mqtt": "^5.15.1",
+    "web-push": "^3.6.7"
+  }
+}

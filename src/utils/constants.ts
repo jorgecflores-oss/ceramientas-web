@@ -6,6 +6,11 @@ export const HTTP_TIMEOUT = 5000
 export const AP_IP = '192.168.4.1'
 export const OTA_VERSION_URL = 'https://raw.githubusercontent.com/jorgecflores-oss/ceramientas-firmware/main/version.json'
 
+// VAPID público (generado 2026-07-15). Privado vive en Cloudflare Worker secrets.
+export const VAPID_PUBLIC_KEY = 'BGUC52Lo3tmFLwjQYhTRVSBOuF6YS6JqXCLtpZo_EOxYMlrtrX-pPZutglY_VAly6pg3sOmdVhZ_1BHVnMjQn4k'
+// URL del servidor push — completar cuando esté deployado (Cloudflare o Fly.io)
+export const PUSH_WORKER_URL = ''
+
 export const STORAGE_KEYS = {
   HORNO_ID: '@ceramientas_horno_id',
   HORNOS_LISTA: '@ceramientas_hornos_lista',

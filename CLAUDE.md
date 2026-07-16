@@ -90,8 +90,9 @@ Fase 2: interacción completa (en curso)
 - [x] Multi-horno — SelectorHorno + store completo; login page acepta onVolver; ConfigPage con botón "Agregar horno"
 
 Fase 3: push
-- [ ] Web Push VAPID
-- [ ] Cloudflare Worker intermediario
+- [x] Web Push VAPID — webapp + Service Worker
+- [x] Cloudflare Worker intermediario — Durable Object MQTT→push
+- [ ] Deploy Worker + completar PUSH_WORKER_URL en constants.ts
 
 ## Comandos dev
 
@@ -135,6 +136,8 @@ PWA debe funcionar 3 escenarios:
 - Feat (2026-07-15): descubrimiento IP local — firmware publica IP en GET /info, webapp lo cachea al abrir HornoPage
 - Fix (2026-07-15): negativo-cache del probe AP (elimina 500ms de overhead por request en LAN)
 - Fix (2026-07-15): refreshIPCache() en HornoPage — cachea IP sin necesidad de re-vincular tras actualizar firmware
+- Feat (2026-07-15): Web Push — push-worker/ (Cloudflare Worker + Durable Object MQTT→push), src/sw.ts, pushService.ts, botón campana HornoPage
+- Feat (2026-07-15): Notificaciones ntfy.sh — firmware HTTP POST a ntfy.sh en paralelo a MQTT; botón campana abre ntfy.sh/ceramientas-{hornoId} para suscribirse sin servidor
 
 ## Notas arquitectura relevantes
 
@@ -201,63 +204,95 @@ El browser no puede recibir UDP (puerto 5005 que usa el Android). Solución en d
 
 ### Funcionalidad
 
-- **Web Push VAPID** (Fase 3) — notificaciones push cuando la app está cerrada o en background. Ver sección de arquitectura abajo.
+- **Deploy servidor push** (opcional, futuro) — Para integrar push nativo en la webapp, deployar `push-server/` en Fly.io o activar `push-worker/` en Cloudflare Workers Paid ($5/mes). Por ahora las notificaciones funcionan vía ntfy.sh (gratis, sin servidor).
 
 ### Técnico
 
 - **Bundle size** — Recharts + MQTT.js son las causas principales. Solución: dynamic import de Recharts (`React.lazy`) para code-split. No es bloqueante pero afecta TTI en conexiones lentas.
 - **Deploy** — actualmente manual (`git push` → GitHub Actions). El workflow ya está en `.github/workflows/deploy.yml`. URL: `https://jorgecflores-oss.github.io/ceramientas-web/`.
 
-## Arquitectura Web Push (Fase 3)
+## Arquitectura Web Push (implementado 2026-07-15)
 
-### Qué notifica la app Android (referencia)
-
-Todas disparadas por estado MQTT o topic `/notif`, con deduplicación via cooldown:
-
-| Tipo | Trigger | Cooldown | Mensaje |
-|------|---------|----------|---------|
-| `etapa` | nueva etapa iniciada (edge) | 30s | "Etapa N de M iniciada" |
-| `meseta` | nuevo estado meseta (edge por etapa) | 30s | "Meseta etapa N: temperatura estable" |
-| `fin` | idle/finalizado tras proceso (edge) | 30s | "Horneado finalizado" |
-| `alarma_critica` | estado alarma_critica (edge) | 30s | "¡ALARMA! Temperatura máxima superada" |
-| `alarma_exceso` | estado alarma_exceso (edge) | 30s | "Exceso de temperatura final" |
-| `rampa_lenta` | flag `rl=true` (level, cooldown Inf) | ∞ | "E{n} calienta lento: {t}°C de {obj}°C" |
-| `rampa_rapida` | flag `rr=true` (level, cooldown Inf) | ∞ | "⚡ PELIGRO E{n}: rampa acelerada" |
-| `corte_luz` | flag `cl=true` o topic `/notif` | 30s | "⚡ Corte de luz detectado" |
-| `detenido` | idle tras proceso, gap < 10s (edge) | 30s | "Proceso detenido manualmente" |
-
-### Arquitectura propuesta
+### Flujo
 
 ```
 Firmware ESP32
-    └── MQTT topic ceramientas/{id}/notif + estado
-            └── Cloudflare Worker (suscripto al broker HiveMQ)
-                    └── Web Push API → browser del usuario
+    └── MQTT topic ceramientas/{id}/notif
+            └── Cloudflare Durable Object (WebSocket MQTT persistente)
+                    └── Web Push API → Service Worker → notificación OS
 ```
 
-**Cloudflare Worker** (worker independiente, no en la webapp):
-- Se suscribe al broker MQTT HiveMQ via WebSocket.
-- Escucha `ceramientas/+/estado` y `ceramientas/+/notif`.
-- Detecta los eventos listados arriba (misma lógica de deduplicación que HornoScreen.js).
-- Guarda subscripciones push en KV: `{hornoId} → [PushSubscription]`.
-- Dispara `webpush.sendNotification()` a cada subscripción registrada.
+### push-worker/ (Cloudflare Worker)
 
-**Webapp** (cliente):
-- Registra Service Worker con `pushManager.subscribe()`.
-- Envía la `PushSubscription` al Worker via HTTP POST `/api/subscribe`.
-- El Service Worker recibe el push y muestra la notificación nativa del OS.
+Ruta: `C:\Users\Jorge\ceramientas-web\push-worker\`
 
-### Endpoint del Worker
+- `src/index.ts` — HTTP handler: `GET /vapid-public-key`, `POST /subscribe`, `DELETE /subscribe`
+- `src/bridge.ts` — `MqttPushBridge` Durable Object: mantiene WebSocket MQTT persistente, detecta `/notif`, dispara push a todos los suscriptores del hornoId
+- `src/push.ts` — implementación nativa RFC 8291 + RFC 8188 (VAPID JWT + cifrado aes128gcm) sin dependencias npm
 
+**KV namespace**: `SUBS` — keys: `sub:{hornoId}:{endpoint[-32:]}`, TTL 90 días, se renueva al reabrir la app.
+
+**Secrets requeridos** (cargar con `wrangler secret put`):
+- `VAPID_PRIVATE_KEY` → `Ge9Vd8P8diA0u_ICZCTPH86kcqC5Vl5--cnuKkQyayg`
+- `VAPID_PUBLIC_KEY` → `BGUC52Lo3tmFLwjQYhTRVSBOuF6YS6JqXCLtpZo_EOxYMlrtrX-pPZutglY_VAly6pg3sOmdVhZ_1BHVnMjQn4k`
+- `VAPID_SUBJECT` → `mailto:floresdiener@gmail.com`
+- `MQTT_USER` → `ceramientas`
+- `MQTT_PASS` → `8264Tomy`
+
+### Deploy Worker (estado al 2026-07-15)
+
+KV namespace `SUBS` ya creado (id `59bdf61299cf4e0ca5bd9f1603b583c2`). Secrets ya cargados en Cloudflare. Falta activar plan Workers Paid ($5/mes) para poder deployar (Durable Objects requieren plan pago).
+
+```powershell
+# Cuando se active el plan Paid, desde push-worker/:
+wrangler deploy
+# → copiar la URL a PUSH_WORKER_URL en src/utils/constants.ts
 ```
-POST /api/subscribe   { hornoId, subscription: PushSubscription }  → 200
-DELETE /api/subscribe { hornoId, endpoint }                        → 200
-```
 
-### VAPID keys
+### push-server/ (alternativa Node.js para Fly.io o VPS)
 
-Generar una vez con `npx web-push generate-vapid-keys`, guardar en secrets de Cloudflare.
-La clave pública va hardcodeada en la webapp (constante en `constants.ts`).
+Ruta: `C:\Users\Jorge\ceramientas-web\push-server\`
+
+Alternativa al Cloudflare Worker, sin Durable Objects. Requiere proceso persistente (Fly.io con crédito gratuito, VPS, etc.).
+
+- `server.js` — Express + mqtt.js + web-push. Suscripciones en memoria (se re-registran al abrir la app vía `refreshPushSubscription`). Conecta a HiveMQ via `mqtts://` port 8883. Escucha `ceramientas/+/notif` y dispara push.
+- `Dockerfile` — node:20-alpine
+- `fly.toml` — región `gru` (São Paulo), `auto_stop_machines = false`, `min_machines_running = 1`
+
+Deploy: `fly launch` + `fly secret set VAPID_* MQTT_*` + `fly deploy` desde `push-server/`.
+
+### Webapp
+
+- `src/sw.ts` — Service Worker personalizado (injectManifest): precaching + handler `push` + handler `notificationclick`
+- `src/services/pushService.ts` — `requestPushPermission`, `suscribirPush`, `desuscribirPush`, `pushSuscripto`, `refreshPushSubscription` (re-registra en servidor al abrir la app, maneja reinicios)
+- `src/pages/HornoPage.tsx` — botón campana en header; comportamiento dual según `PUSH_WORKER_URL`
+- `src/utils/constants.ts` — `VAPID_PUBLIC_KEY` (hardcodeada) + `PUSH_WORKER_URL` (vacío = modo ntfy.sh activo)
+- `vite.config.ts` — cambiado de `generateSW` a `injectManifest` para soportar SW personalizado
+
+### Comportamiento del botón campana (HornoPage)
+
+- **`PUSH_WORKER_URL === ''` (actual)**: toca campana → abre `https://ntfy.sh/ceramientas-{hornoId}` en nueva pestaña. El usuario se suscribe ahí para recibir notificaciones del OS vía ntfy.sh.
+- **`PUSH_WORKER_URL !== ''` (futuro)**: toca campana → flow Web Push nativo (requestPermission → pushManager.subscribe → POST al servidor). `pushActivo` refleja el estado real de la suscripción.
+
+### Notificaciones actuales: ntfy.sh (gratis, sin servidor)
+
+El firmware hace HTTP POST a `https://ntfy.sh/ceramientas-{HORNO_ID}` en paralelo a cada publish MQTT de `/notif`.
+El botón campana en HornoPage abre `https://ntfy.sh/ceramientas-{hornoId}` para que el usuario se suscriba.
+No requiere cuenta ni servidor. Límite free tier: 250 mensajes/día por topic (más que suficiente).
+
+Para recibir notificaciones: visitar el link que abre la campana → "Subscribe" en el browser, o instalar la app ntfy.sh en el celular.
+
+### Escalabilidad
+
+Cloudflare Workers Free: 100K req/día gratis. Web Push API: gratuita en Apple/Google/Mozilla sin límite de usuarios.
+HiveMQ Free: 100 conexiones concurrentes → al llegar a ~80 hornos vendidos, migrar a VPS propio (~$6/mes, Mosquitto + Node.js).
+
+### Migración futura: push nativo integrado en la webapp
+
+Cuando se quiera eliminar la dependencia de ntfy.sh y tener push integrado:
+1. Deployar `push-server/` (Node.js) en Fly.io o similar, O activar `push-worker/` en Cloudflare Workers Paid
+2. Completar `PUSH_WORKER_URL` en `src/utils/constants.ts`
+3. El botón campana automáticamente cambia de comportamiento (ntfy.sh → push nativo)
 
 ## Repo
 
