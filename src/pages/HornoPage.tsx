@@ -404,7 +404,7 @@ export function HornoPage() {
       <div className="bg-neutral-900 rounded-2xl mb-6 border border-neutral-800 overflow-hidden">
         <div className="p-6 text-center">
           <p className="text-6xl font-bold">{temp}<span className="text-2xl text-neutral-400 align-top">°C</span></p>
-          {tempObj > 0 && (
+          {enProceso && tempObj > 0 && (
             <p className="text-sm text-neutral-400 mt-2">objetivo: {tempObj}°C</p>
           )}
         </div>
