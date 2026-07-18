@@ -48,7 +48,7 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
     onVinculadoSinInternet ? onVinculadoSinInternet() : onVolver?.()
   }
 
-  const BUSQUEDA_MS = 12000
+  const BUSQUEDA_MS = 32000
 
   async function buscarHornos() {
     feedbackBoton()
@@ -66,7 +66,9 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
       })
     }, 1000)
     try {
-      const encontrados = await descubrirHornosMQTT(BUSQUEDA_MS)
+      const encontrados = await descubrirHornosMQTT(BUSQUEDA_MS, (id) => {
+        setHornosDetectados((prev) => prev.includes(id) ? prev : [...prev, id])
+      })
       if (encontrados.length === 0) {
         setError('No se detectaron hornos. Verificá que el horno esté encendido y conectado a internet.')
       }
@@ -188,7 +190,6 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
                   <button
                     key={id}
                     onClick={() => vincularHorno(id)}
-                    disabled={buscando}
                     className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-700 hover:border-orange-500 disabled:opacity-50 rounded-lg transition active:scale-95 duration-75"
                   >
                     <span className="text-neutral-300 font-mono text-sm">{id.slice(-6)}</span>

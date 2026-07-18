@@ -118,7 +118,10 @@ export function detenerMQTT() {
   conectado = false
 }
 
-export function descubrirHornosMQTT(timeoutMs: number = 15000): Promise<string[]> {
+export function descubrirHornosMQTT(
+  timeoutMs: number = 15000,
+  onFound?: (hornoId: string) => void
+): Promise<string[]> {
   return new Promise((resolve) => {
     if (!estaConectado()) {
       resolve([])
@@ -128,7 +131,10 @@ export function descubrirHornosMQTT(timeoutMs: number = 15000): Promise<string[]
     descubrimientoHandler = (topic: string) => {
       console.log('[DESC] topic recibido:', topic)
       const match = topic.match(/^ceramientas\/([^/]+)\/estado$/)
-      if (match) encontrados.add(match[1])
+      if (match && !encontrados.has(match[1])) {
+        encontrados.add(match[1])
+        onFound?.(match[1])
+      }
     }
     client!.subscribe('ceramientas/+/estado', { qos: 0 })
     console.log('[DESC] iniciando suscripcion ceramientas/+/estado')
