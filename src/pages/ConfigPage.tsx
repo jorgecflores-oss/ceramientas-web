@@ -452,7 +452,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                   <p className="text-white font-mono">ceramientas</p>
                 </div>
                 <p className="text-neutral-400 text-sm mb-6">
-                  Conectate a esa red desde tu dispositivo y volvé a intentar.
+                  Conectate a esa red desde tu dispositivo. Después tocá "Abrir configuración".
                 </p>
                 <div className="flex gap-2 w-full">
                   <button
@@ -462,10 +462,10 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                     Cerrar
                   </button>
                   <button
-                    onClick={abrirConfigWifi}
+                    onClick={() => { window.open(`http://${AP_IP}/`, '_blank'); cerrarWifi() }}
                     className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 rounded-xl text-white font-semibold transition active:scale-95 duration-75"
                   >
-                    Reintentar
+                    Abrir configuración
                   </button>
                 </div>
               </>

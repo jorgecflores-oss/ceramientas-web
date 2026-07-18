@@ -156,7 +156,14 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
             </button>
 
             <p className="text-xs text-neutral-500">
-              Si es un horno nuevo o no aparece, conectate a su red <span className="font-mono text-neutral-300">CERAMIENTAS_XXXX</span> y volvé a tocar Buscar hornos.
+              Si es un horno nuevo o no aparece, conectate a su red <span className="font-mono text-neutral-300">CERAMIENTAS_XXXX</span> y{' '}
+              <button
+                onClick={() => window.open(`http://${AP_IP}/`, '_blank')}
+                className="text-orange-400 underline underline-offset-2"
+              >
+                abrí la configuración WiFi
+              </button>{' '}
+              directo desde ahí.
             </p>
 
             {hornoDetectadoAP && (
