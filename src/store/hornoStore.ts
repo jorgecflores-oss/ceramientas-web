@@ -72,6 +72,25 @@ interface HornoState {
 }
 
 const MAX_HISTORIAL = 500
+
+function downsamplePorBuckets(
+  puntos: { t: number; temp: number }[],
+  t0: number,
+  now: number,
+  cantidadBuckets: number
+): { t: number; temp: number }[] {
+  const desdeInicio = puntos.filter(p => p.t >= t0)
+  if (desdeInicio.length === 0) return []
+  const span = Math.max(now - t0, 1)
+  const anchoBucket = span / cantidadBuckets
+  const buckets = new Map<number, { t: number; temp: number }>()
+  for (const p of desdeInicio) {
+    const idx = Math.floor((p.t - t0) / anchoBucket)
+    buckets.set(idx, p)
+  }
+  return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([, p]) => p)
+}
+
 const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
 
 function removeKey<T>(record: Record<string, T>, id: string): Record<string, T> {
@@ -286,9 +305,13 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   pushTemp: (temp) => {
     const id = get().hornoActivoId
     if (!id) return
+    const now = Date.now()
     const prev = get().historialTemps[id] ?? []
-    const nuevo = [...prev, { t: Date.now(), temp }]
-    if (nuevo.length > MAX_HISTORIAL) nuevo.shift()
+    const t0 = get().tIniciosMap[id] ?? prev[0]?.t ?? now
+    let nuevo = [...prev, { t: now, temp }]
+    if (nuevo.length > MAX_HISTORIAL) {
+      nuevo = downsamplePorBuckets(nuevo, t0, now, MAX_HISTORIAL)
+    }
     const historialTemps = { ...get().historialTemps, [id]: nuevo }
     set({ historialTemps, historialTemp: nuevo })
 

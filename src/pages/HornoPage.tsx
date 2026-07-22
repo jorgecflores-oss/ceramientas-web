@@ -313,20 +313,22 @@ export function HornoPage() {
       // al proceso actual antes de recalcular la curva teórica.
       const procesoMs = ((estado?.horas ?? 0) * 60 + (estado?.minutos ?? 0)) * 60000
       if (procesoMs === 0) {
-        // Proceso recién iniciado: el historial en storage es de la horneada anterior.
-        resetHistorial()
-        if (hornoId) useHornoStore.getState().limpiarSnapshot(hornoId)
-      } else if (hornoId) {
-        // Mid-process: verificar si el último punto guardado cae dentro de la ventana del proceso.
-        const histActual = useHornoStore.getState().historialTemps[hornoId] ?? []
-        if (histActual.length > 0) {
-          const cutoffT = Date.now() - procesoMs - 5 * 60000
-          if (histActual[histActual.length - 1].t < cutoffT) {
-            resetHistorial()
+        // Proceso recién iniciado: hay temp real disponible en estado.temperatura,
+        // usarla en vez de la tempBase=20 hardcodeada del path de reconexión.
+        calcularYGuardarCurva(true)
+      } else {
+        if (hornoId) {
+          // Mid-process real: verificar si el último punto guardado cae dentro de la ventana del proceso.
+          const histActual = useHornoStore.getState().historialTemps[hornoId] ?? []
+          if (histActual.length > 0) {
+            const cutoffT = Date.now() - procesoMs - 5 * 60000
+            if (histActual[histActual.length - 1].t < cutoffT) {
+              resetHistorial()
+            }
           }
         }
+        calcularYGuardarCurva(false)
       }
-      calcularYGuardarCurva(false)
     } else if ((prev === 'idle' || prev === 'finalizado') && actualActivo) {
       calcularYGuardarCurva(true)
     } else if (prevEraActivo && actualInactivo) {

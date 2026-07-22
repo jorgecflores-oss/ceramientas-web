@@ -102,33 +102,16 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
   const plotW = Math.max(1, svgW - PAD_LEFT - PAD_RIGHT)
   const plotH = Math.max(1, SVG_H - PAD_TOP - PAD_BOTTOM)
 
-  // Path curva real (incluye relleno sintético cuando la app abrió mid-process)
   const realPath = useMemo(() => {
-    const now = Date.now()
     const pw = Math.max(1, svgW - PAD_LEFT - PAD_RIGHT)
     const ph = Math.max(1, SVG_H - PAD_TOP - PAD_BOTTOM)
     const lxp = (t: number) => PAD_LEFT + ((t - tMin) / (tMax - tMin)) * pw
     const lyp = (temp: number) => PAD_TOP + (1 - (temp - yMin) / (yMax - yMin)) * ph
 
-    let histEf = puntosEfFilt
-
-    // Sin datos reales: proyectar la curva teórica hasta ahora
-    if (histEf.length === 0 && hayTeoricoEf) {
-      const hasta = teoricoEf!.filter(p => p.t <= now)
-      histEf = hasta.length > 0
-        ? [...hasta, { t: now, temp: interpolarTemp(teoricoEf!, now) }]
-        : []
-    }
-
-    // Relleno sintético: tramo anterior al primer dato real (app abrió mid-process)
-    const fill = (hayTeoricoEf && histEf.length > 0 && histEf[0].t > teoricoEf![0].t)
-      ? teoricoEf!.filter(p => p.t < histEf[0].t)
-      : []
-    const pts = fill.length > 0 ? [...fill, ...histEf] : histEf
-
+    const pts = puntosEfFilt
     if (pts.length < 2) return ''
     return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`).join(' ')
-  }, [puntosEfFilt, hayTeoricoEf, teoricoEf, tMin, tMax, yMin, yMax, svgW])
+  }, [puntosEfFilt, tMin, tMax, yMin, yMax, svgW])
 
   // Path curva teórica
   const teoPath = useMemo(() => {
