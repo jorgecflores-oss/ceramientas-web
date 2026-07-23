@@ -59,6 +59,7 @@ interface HornoState {
   setMqttConectado: (c: boolean) => void
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
   pushTemp: (temp: number) => void
+  mergeCurvaFirmware: (puntos: { t: number; temp: number }[]) => void
   flushHistorial: () => void
   resetHistorial: () => void
   setProgramas: (p: Programa[]) => void
@@ -321,6 +322,34 @@ export const useHornoStore = create<HornoState>((set, get) => ({
         localStorage.setItem(STORAGE_KEYS.CURVA(id), JSON.stringify(nuevo))
       } catch (e) {
         console.error('[pushTemp persist]', e)
+      }
+    }, 2000)
+  },
+
+  mergeCurvaFirmware: (puntosFirmware) => {
+    const id = get().hornoActivoId
+    if (!id || puntosFirmware.length === 0) return
+    const prev = get().historialTemps[id] ?? []
+    const t0 = get().tIniciosMap[id] ?? prev[0]?.t ?? puntosFirmware[0].t
+    const now = Date.now()
+    const combinado = [...prev]
+    for (const pf of puntosFirmware) {
+      const yaExiste = prev.some(p => Math.abs(p.t - pf.t) < 45000)
+      if (!yaExiste) combinado.push(pf)
+    }
+    combinado.sort((a, b) => a.t - b.t)
+    const nuevo = combinado.length > MAX_HISTORIAL
+      ? downsamplePorBuckets(combinado, t0, now, MAX_HISTORIAL)
+      : combinado
+    const historialTemps = { ...get().historialTemps, [id]: nuevo }
+    set({ historialTemps, historialTemp: nuevo })
+
+    if (debounceTimers[id]) clearTimeout(debounceTimers[id])
+    debounceTimers[id] = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEYS.CURVA(id), JSON.stringify(nuevo))
+      } catch (e) {
+        console.error('[mergeCurvaFirmware persist]', e)
       }
     }, 2000)
   },

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, publicarComando } from '../services/mqttService'
-import { postComando, getProgramas, getConfig, getEstado, refreshIPCache } from '../services/hornoService'
+import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
@@ -295,6 +295,19 @@ export function HornoPage() {
           console.error('[CURVA_TEORICA] error', e)
         }
       }
+    }
+
+    try {
+      const curva = await getCurva(hornoId) as { pts?: { m: number; t: number }[] }
+      if (curva?.pts?.length) {
+        const t0Actual = useHornoStore.getState().tIniciosMap[hornoId]
+        if (t0Actual) {
+          const puntosFw = curva.pts.map(p => ({ t: t0Actual + p.m * 60000, temp: p.t }))
+          useHornoStore.getState().mergeCurvaFirmware(puntosFw)
+        }
+      }
+    } catch (e) {
+      console.error('[CURVA_FIRMWARE] error', e)
     }
   }
 
