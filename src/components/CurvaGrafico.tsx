@@ -2,13 +2,15 @@ import { useState, useEffect, useRef, useMemo, useId } from 'react'
 import type { PuntoCurva } from '../types/horno'
 import type { Snapshot } from '../store/hornoStore'
 
-const PAD_LEFT   = 38
-const PAD_TOP    = 10
-const PAD_BOTTOM = 22
-const PAD_RIGHT  = 8
-const SVG_H      = 260
-const MIN_WIN_MS = 10 * 60 * 1000
+const PAD_LEFT    = 38
+const PAD_TOP     = 10
+const PAD_BOTTOM  = 22
+const PAD_RIGHT   = 8
+const SVG_H       = 260
+const PLOT_H      = SVG_H - PAD_TOP - PAD_BOTTOM
+const MIN_WIN_MS  = 10 * 60 * 1000
 const MIN_ZOOM_MS = 2 * 60 * 1000
+const MIN_ZOOM_DEG = 20
 const UMBRAL_PAN_PX = 6
 
 function interpolarTemp(puntos: PuntoCurva[], t: number): number {
@@ -30,6 +32,44 @@ function formatHoraRel(ms: number): string {
   return `${h}:${String(m).padStart(2, '0')}`
 }
 
+// Valores de tick "redondos" (1-2-5-10 × potencia de 10) para el eje de temperatura —
+// nunca un paso tipo "37.4", solo múltiplos limpios acordes al nivel de zoom.
+function ticksRedondos(min: number, max: number, cantidadObjetivo: number): number[] {
+  const rango = max - min
+  if (!isFinite(rango) || rango <= 0) return [Math.round(min)]
+  const pasoCrudo = rango / cantidadObjetivo
+  const magnitud = Math.pow(10, Math.floor(Math.log10(pasoCrudo)))
+  const residuo = pasoCrudo / magnitud
+  let paso: number
+  if (residuo < 1.5) paso = 1
+  else if (residuo < 3) paso = 2
+  else if (residuo < 7) paso = 5
+  else paso = 10
+  paso *= magnitud
+  const inicio = Math.ceil(min / paso) * paso
+  const ticks: number[] = []
+  for (let v = inicio; v <= max + paso * 1e-6; v += paso) {
+    ticks.push(Math.round(v * 100) / 100)
+  }
+  return ticks
+}
+
+// Mismo criterio para el eje de tiempo, en pasos redondos de minutos/horas.
+const PASOS_MINUTOS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440]
+function ticksTiempo(minMs: number, maxMs: number, cantidadObjetivo: number): number[] {
+  const rangoMin = (maxMs - minMs) / 60000
+  if (rangoMin <= 0) return [minMs]
+  const pasoCrudoMin = rangoMin / cantidadObjetivo
+  const pasoMin = PASOS_MINUTOS.find(p => p >= pasoCrudoMin) ?? PASOS_MINUTOS[PASOS_MINUTOS.length - 1]
+  const pasoMs = pasoMin * 60000
+  const inicio = Math.ceil(minMs / pasoMs) * pasoMs
+  const ticks: number[] = []
+  for (let v = inicio; v <= maxMs + pasoMs * 1e-6; v += pasoMs) {
+    ticks.push(v)
+  }
+  return ticks
+}
+
 interface Props {
   puntos: PuntoCurva[]
   puntosTeoricos?: PuntoCurva[]
@@ -37,6 +77,8 @@ interface Props {
   ultimoYMax?: number | null
   snapshot?: Snapshot | null
 }
+
+interface Vista { tIni: number; tFin: number; yIni: number; yFin: number }
 
 export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snapshot }: Props) {
   const rawId = useId()
@@ -49,7 +91,6 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    // Leer tamaño inicial para evitar flash en iOS (ResizeObserver puede tardar un ciclo)
     const initialW = Math.round(el.getBoundingClientRect().width)
     if (initialW > 0) setSvgW(initialW)
     const ro = new ResizeObserver(([entry]) => {
@@ -61,45 +102,116 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
+  const hayTeorica = puntosTeoricos && puntosTeoricos.length > 1
+  const modoSnapshot = !hayTeorica && !!snapshot && snapshot.puntosTeoricos.length > 1
+
+  const puntosEf: PuntoCurva[] = modoSnapshot ? snapshot!.historialTemp : puntos
+  const teoricoEf: PuntoCurva[] | undefined = modoSnapshot
+    ? snapshot!.puntosTeoricos
+    : (hayTeorica ? puntosTeoricos! : undefined)
+  const xAhoraEf: number | undefined = modoSnapshot ? snapshot!.xAhoraFinal : xAhora
+  const hayTeoricoEf = teoricoEf && teoricoEf.length > 1
+
+  const t0 = useMemo(() => {
+    if (hayTeoricoEf) return teoricoEf![0].t
+    return puntosEf.length > 0 ? puntosEf[0].t : Date.now()
+  }, [hayTeoricoEf, teoricoEf, puntosEf])
+
+  const puntosEfFilt = useMemo(() => {
+    return hayTeoricoEf ? puntosEf.filter(p => p.t >= t0) : puntosEf
+  }, [puntosEf, hayTeoricoEf, t0])
+
+  const { tMin: tMinDatos, tMax: tMaxDatos } = useMemo(() => {
+    const teoEnd = hayTeoricoEf ? teoricoEf![teoricoEf!.length - 1].t : 0
+    const realEnd = puntosEfFilt.length > 0 ? puntosEfFilt[puntosEfFilt.length - 1].t : t0
+    return { tMin: t0, tMax: Math.max(teoEnd, realEnd, t0 + MIN_WIN_MS) }
+  }, [t0, hayTeoricoEf, teoricoEf, puntosEfFilt])
+
+  const { yMin: yMinDatos, yMax: yMaxDatos } = useMemo(() => {
+    const teoMax = hayTeoricoEf ? Math.max(...teoricoEf!.map(p => p.temp)) : 0
+    const realTemps = puntosEfFilt.length > 0 ? puntosEfFilt.map(p => p.temp) : [20]
+    const tempInicio = hayTeoricoEf ? teoricoEf![0].temp : Math.min(...realTemps)
+    const yn = Math.max(0, Math.min(tempInicio, Math.min(...realTemps)) - 10)
+    let yx = Math.max(teoMax, Math.max(...realTemps), yn + 25)
+    if (!hayTeoricoEf && ultimoYMax) yx = ultimoYMax
+    return { yMin: yn, yMax: yx }
+  }, [puntosEfFilt, hayTeoricoEf, teoricoEf, ultimoYMax])
+
+  const [vista, setVista] = useState<Vista | null>(null)
+  useEffect(() => { setVista(null) }, [t0])
+
+  const tMin = vista?.tIni ?? tMinDatos
+  const tMax = vista?.tFin ?? tMaxDatos
+  const yMin = vista?.yIni ?? yMinDatos
+  const yMax = vista?.yFin ?? yMaxDatos
+
+  const tMinRef = useRef(tMin)
+  const tMaxRef = useRef(tMax)
+  const yMinRef = useRef(yMin)
+  const yMaxRef = useRef(yMax)
+  const tMinDatosRef = useRef(tMinDatos)
+  const tMaxDatosRef = useRef(tMaxDatos)
+  const yMinDatosRef = useRef(yMinDatos)
+  const yMaxDatosRef = useRef(yMaxDatos)
+  useEffect(() => { tMinRef.current = tMin; tMaxRef.current = tMax }, [tMin, tMax])
+  useEffect(() => { yMinRef.current = yMin; yMaxRef.current = yMax }, [yMin, yMax])
+  useEffect(() => { tMinDatosRef.current = tMinDatos; tMaxDatosRef.current = tMaxDatos }, [tMinDatos, tMaxDatos])
+  useEffect(() => { yMinDatosRef.current = yMinDatos; yMaxDatosRef.current = yMaxDatos }, [yMinDatos, yMaxDatos])
+
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
 
     let modo: 'pinch' | 'pan-pendiente' | 'pan' | null = null
     let distanciaInicial = 0
-    let vistaAlInicio = { inicio: tMinRef.current, fin: tMaxRef.current }
+    let vistaAlInicio: Vista = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
     let xPanInicial = 0
-    let vistaAlIniciarPan = { inicio: tMinRef.current, fin: tMaxRef.current }
+    let yPanInicial = 0
+    let vistaAlIniciarPan: Vista = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
 
     const distanciaEntreDedos = (t: TouchList) =>
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
 
-    const centroT = (clientXProm: number, rect: DOMRect, ini: number, fin: number) => {
-      const cx = clientXProm - rect.left
-      const ratio = (cx - PAD_LEFT) / Math.max(1, rect.width - PAD_LEFT - PAD_RIGHT)
-      return ini + ratio * (fin - ini)
+    const centroDesdeXY = (clientX: number, clientY: number, rect: DOMRect, v: Vista) => {
+      const pw = Math.max(1, rect.width - PAD_LEFT - PAD_RIGHT)
+      const ratioX = (clientX - rect.left - PAD_LEFT) / pw
+      const ratioY = (clientY - rect.top - PAD_TOP) / PLOT_H
+      return {
+        t: v.tIni + ratioX * (v.tFin - v.tIni),
+        y: v.yFin - ratioY * (v.yFin - v.yIni),
+      }
     }
 
-    const aplicarZoom = (centro: number, anchoDeseado: number, iniBase: number, finBase: number) => {
-      const anchoTotal = tMaxDatosRef.current - tMinDatosRef.current
-      const nuevoAncho = Math.min(Math.max(anchoDeseado, MIN_ZOOM_MS), anchoTotal)
-      let inicio = centro - (centro - iniBase) * (nuevoAncho / (finBase - iniBase))
-      let fin = inicio + nuevoAncho
-      if (inicio < tMinDatosRef.current) { inicio = tMinDatosRef.current; fin = inicio + nuevoAncho }
-      if (fin > tMaxDatosRef.current) { fin = tMaxDatosRef.current; inicio = fin - nuevoAncho }
-      setVista({ inicio, fin })
+    const aplicarZoom = (centroT: number, centroY: number, factor: number, base: Vista) => {
+      const anchoTotalT = tMaxDatosRef.current - tMinDatosRef.current
+      const anchoTotalY = yMaxDatosRef.current - yMinDatosRef.current
+      const nuevoAnchoT = Math.min(Math.max((base.tFin - base.tIni) * factor, MIN_ZOOM_MS), anchoTotalT)
+      const nuevoAnchoY = Math.min(Math.max((base.yFin - base.yIni) * factor, MIN_ZOOM_DEG), anchoTotalY)
+
+      let tIni = centroT - (centroT - base.tIni) * (nuevoAnchoT / (base.tFin - base.tIni))
+      let tFin = tIni + nuevoAnchoT
+      if (tIni < tMinDatosRef.current) { tIni = tMinDatosRef.current; tFin = tIni + nuevoAnchoT }
+      if (tFin > tMaxDatosRef.current) { tFin = tMaxDatosRef.current; tIni = tFin - nuevoAnchoT }
+
+      let yIni = centroY - (centroY - base.yIni) * (nuevoAnchoY / (base.yFin - base.yIni))
+      let yFin = yIni + nuevoAnchoY
+      if (yIni < yMinDatosRef.current) { yIni = yMinDatosRef.current; yFin = yIni + nuevoAnchoY }
+      if (yFin > yMaxDatosRef.current) { yFin = yMaxDatosRef.current; yIni = yFin - nuevoAnchoY }
+
+      setVista({ tIni, tFin, yIni, yFin })
     }
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
         modo = 'pinch'
         distanciaInicial = distanciaEntreDedos(e.touches)
-        vistaAlInicio = { inicio: tMinRef.current, fin: tMaxRef.current }
+        vistaAlInicio = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
         e.preventDefault()
       } else if (e.touches.length === 1) {
         modo = 'pan-pendiente'
         xPanInicial = e.touches[0].clientX
-        vistaAlIniciarPan = { inicio: tMinRef.current, fin: tMaxRef.current }
+        yPanInicial = e.touches[0].clientY
+        vistaAlIniciarPan = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
       }
     }
 
@@ -111,23 +223,31 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
         const distanciaAhora = distanciaEntreDedos(e.touches)
         const factor = distanciaInicial / distanciaAhora
         const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2
-        const centro = centroT(cx, rect, vistaAlInicio.inicio, vistaAlInicio.fin)
-        aplicarZoom(centro, (vistaAlInicio.fin - vistaAlInicio.inicio) * factor, vistaAlInicio.inicio, vistaAlInicio.fin)
+        const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2
+        const centro = centroDesdeXY(cx, cy, rect, vistaAlInicio)
+        aplicarZoom(centro.t, centro.y, factor, vistaAlInicio)
       } else if ((modo === 'pan' || modo === 'pan-pendiente') && e.touches.length === 1) {
         const dx = e.touches[0].clientX - xPanInicial
+        const dy = e.touches[0].clientY - yPanInicial
         if (modo === 'pan-pendiente') {
-          if (Math.abs(dx) < UMBRAL_PAN_PX) return
+          if (Math.hypot(dx, dy) < UMBRAL_PAN_PX) return
           modo = 'pan'
         }
         e.preventDefault()
-        const anchoMs = vistaAlIniciarPan.fin - vistaAlIniciarPan.inicio
+        const anchoMs = vistaAlIniciarPan.tFin - vistaAlIniciarPan.tIni
+        const altoDeg = vistaAlIniciarPan.yFin - vistaAlIniciarPan.yIni
         const plotWpx = Math.max(1, rect.width - PAD_LEFT - PAD_RIGHT)
         const deltaMs = -(dx / plotWpx) * anchoMs
-        let inicio = vistaAlIniciarPan.inicio + deltaMs
-        let fin = vistaAlIniciarPan.fin + deltaMs
-        if (inicio < tMinDatosRef.current) { inicio = tMinDatosRef.current; fin = inicio + anchoMs }
-        if (fin > tMaxDatosRef.current) { fin = tMaxDatosRef.current; inicio = fin - anchoMs }
-        setVista({ inicio, fin })
+        const deltaDeg = (dy / PLOT_H) * altoDeg
+        let tIni = vistaAlIniciarPan.tIni + deltaMs
+        let tFin = vistaAlIniciarPan.tFin + deltaMs
+        let yIni = vistaAlIniciarPan.yIni + deltaDeg
+        let yFin = vistaAlIniciarPan.yFin + deltaDeg
+        if (tIni < tMinDatosRef.current) { tIni = tMinDatosRef.current; tFin = tIni + anchoMs }
+        if (tFin > tMaxDatosRef.current) { tFin = tMaxDatosRef.current; tIni = tFin - anchoMs }
+        if (yIni < yMinDatosRef.current) { yIni = yMinDatosRef.current; yFin = yIni + altoDeg }
+        if (yFin > yMaxDatosRef.current) { yFin = yMaxDatosRef.current; yIni = yFin - altoDeg }
+        setVista({ tIni, tFin, yIni, yFin })
       }
     }
 
@@ -137,7 +257,8 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       } else if (e.touches.length === 1) {
         modo = 'pan-pendiente'
         xPanInicial = e.touches[0].clientX
-        vistaAlIniciarPan = { inicio: tMinRef.current, fin: tMaxRef.current }
+        yPanInicial = e.touches[0].clientY
+        vistaAlIniciarPan = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
       }
     }
 
@@ -146,8 +267,9 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       e.preventDefault()
       const rect = el.getBoundingClientRect()
       const factor = Math.exp(e.deltaY * 0.01)
-      const centro = centroT(e.clientX, rect, tMinRef.current, tMaxRef.current)
-      aplicarZoom(centro, (tMaxRef.current - tMinRef.current) * factor, tMinRef.current, tMaxRef.current)
+      const base: Vista = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
+      const centro = centroDesdeXY(e.clientX, e.clientY, rect, base)
+      aplicarZoom(centro.t, centro.y, factor, base)
     }
 
     el.addEventListener('touchstart', onTouchStart, { passive: false })
@@ -165,60 +287,6 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     }
   }, [])
 
-  // Modo snapshot vs. live
-  const hayTeorica = puntosTeoricos && puntosTeoricos.length > 1
-  const modoSnapshot = !hayTeorica && !!snapshot && snapshot.puntosTeoricos.length > 1
-
-  const puntosEf: PuntoCurva[] = modoSnapshot ? snapshot!.historialTemp : puntos
-  const teoricoEf: PuntoCurva[] | undefined = modoSnapshot
-    ? snapshot!.puntosTeoricos
-    : (hayTeorica ? puntosTeoricos! : undefined)
-  const xAhoraEf: number | undefined = modoSnapshot ? snapshot!.xAhoraFinal : xAhora
-  const hayTeoricoEf = teoricoEf && teoricoEf.length > 1
-
-  // t0 = inicio del programa (primer nodo teórico)
-  const t0 = useMemo(() => {
-    if (hayTeoricoEf) return teoricoEf![0].t
-    return puntosEf.length > 0 ? puntosEf[0].t : Date.now()
-  }, [hayTeoricoEf, teoricoEf, puntosEf])
-
-  // Descartar datos anteriores al inicio del programa actual
-  const puntosEfFilt = useMemo(() => {
-    return hayTeoricoEf ? puntosEf.filter(p => p.t >= t0) : puntosEf
-  }, [puntosEf, hayTeoricoEf, t0])
-
-  // Rango X natural (todo el programa/datos disponibles)
-  const { tMin: tMinDatos, tMax: tMaxDatos } = useMemo(() => {
-    const teoEnd = hayTeoricoEf ? teoricoEf![teoricoEf!.length - 1].t : 0
-    const realEnd = puntosEfFilt.length > 0 ? puntosEfFilt[puntosEfFilt.length - 1].t : t0
-    return { tMin: t0, tMax: Math.max(teoEnd, realEnd, t0 + MIN_WIN_MS) }
-  }, [t0, hayTeoricoEf, teoricoEf, puntosEfFilt])
-
-  // Ventana de vista (zoom/pan táctil). null = rango completo natural.
-  const [vista, setVista] = useState<{ inicio: number; fin: number } | null>(null)
-  useEffect(() => { setVista(null) }, [t0])
-
-  const tMin = vista?.inicio ?? tMinDatos
-  const tMax = vista?.fin ?? tMaxDatos
-
-  const tMinRef = useRef(tMin)
-  const tMaxRef = useRef(tMax)
-  const tMinDatosRef = useRef(tMinDatos)
-  const tMaxDatosRef = useRef(tMaxDatos)
-  useEffect(() => { tMinRef.current = tMin; tMaxRef.current = tMax }, [tMin, tMax])
-  useEffect(() => { tMinDatosRef.current = tMinDatos; tMaxDatosRef.current = tMaxDatos }, [tMinDatos, tMaxDatos])
-
-  // Rango Y
-  const { yMin, yMax } = useMemo(() => {
-    const teoMax = hayTeoricoEf ? Math.max(...teoricoEf!.map(p => p.temp)) : 0
-    const realTemps = puntosEfFilt.length > 0 ? puntosEfFilt.map(p => p.temp) : [20]
-    const tempInicio = hayTeoricoEf ? teoricoEf![0].temp : Math.min(...realTemps)
-    const yn = Math.max(0, Math.min(tempInicio, Math.min(...realTemps)) - 10)
-    let yx = Math.max(teoMax, Math.max(...realTemps), yn + 25)
-    if (!hayTeoricoEf && ultimoYMax) yx = ultimoYMax
-    return { yMin: yn, yMax: yx }
-  }, [puntosEfFilt, hayTeoricoEf, teoricoEf, ultimoYMax])
-
   const plotW = Math.max(1, svgW - PAD_LEFT - PAD_RIGHT)
   const plotH = Math.max(1, SVG_H - PAD_TOP - PAD_BOTTOM)
 
@@ -227,13 +295,11 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     const ph = Math.max(1, SVG_H - PAD_TOP - PAD_BOTTOM)
     const lxp = (t: number) => PAD_LEFT + ((t - tMin) / (tMax - tMin)) * pw
     const lyp = (temp: number) => PAD_TOP + (1 - (temp - yMin) / (yMax - yMin)) * ph
-
     const pts = puntosEfFilt
     if (pts.length < 2) return ''
     return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`).join(' ')
   }, [puntosEfFilt, tMin, tMax, yMin, yMax, svgW])
 
-  // Path curva teórica
   const teoPath = useMemo(() => {
     if (!hayTeoricoEf) return ''
     const pw = Math.max(1, svgW - PAD_LEFT - PAD_RIGHT)
@@ -243,29 +309,17 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     return teoricoEf!.map((p, i) => `${i === 0 ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`).join(' ')
   }, [hayTeoricoEf, teoricoEf, tMin, tMax, yMin, yMax, svgW])
 
-  // Ticks eje Y: nodos teóricos + extremos, deduplicados si están a <15° entre sí
-  const yTicks = useMemo(() => {
-    const nodeTemps = hayTeoricoEf ? [...new Set(teoricoEf!.map(p => Math.round(p.temp)))] : []
-    const all = [Math.round(yMin), ...nodeTemps, Math.round(yMax)]
-    const sorted = [...new Set(all)].sort((a, b) => a - b)
-    const deduped: number[] = []
-    for (const v of sorted) {
-      if (deduped.length === 0 || v - deduped[deduped.length - 1] >= 15) deduped.push(v)
-    }
-    return deduped
-  }, [hayTeoricoEf, teoricoEf, yMin, yMax])
+  const yTicks = useMemo(() => ticksRedondos(yMin, yMax, 6), [yMin, yMax])
+  const xTicks = useMemo(() => ticksTiempo(tMin, tMax, 5), [tMin, tMax])
 
-  // Proyecciones inline (usadas en render; los useMemo definen lxp/lyp locales)
   const xp = (t: number) => PAD_LEFT + ((t - tMin) / (tMax - tMin)) * plotW
   const yp = (temp: number) => PAD_TOP + (1 - (temp - yMin) / (yMax - yMin)) * plotH
 
-  // Línea "ahora"
   const tAhora = xAhoraEf !== undefined ? t0 + xAhoraEf * 60000 : undefined
   const xNow = tAhora !== undefined
     ? (() => { const x = xp(tAhora); return x >= PAD_LEFT && x <= PAD_LEFT + plotW ? x : null })()
     : null
 
-  // Tooltip (datos del último punto real)
   const tooltip = useMemo(() => {
     if (!tooltipVisible || puntosEfFilt.length < 1) return null
     const lastPt = puntosEfFilt[puntosEfFilt.length - 1]
@@ -335,7 +389,6 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
             </clipPath>
           </defs>
 
-          {/* Guías verticales en nodos teóricos */}
           {teoNodes.map((node, i) => {
             const x = xp(node.t)
             if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
@@ -347,7 +400,21 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
             )
           })}
 
-          {/* Eje Y: cuadrícula + etiquetas */}
+          {xTicks.map((t, i) => {
+            const x = xp(t)
+            if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
+            return (
+              <g key={`xt${i}`}>
+                <line x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + plotH}
+                  stroke="#888888" strokeWidth={1} opacity={0.1} />
+                <text x={x} y={PAD_TOP + plotH + 15}
+                  fill="#888888" fontSize={8} textAnchor="middle" opacity={0.8}>
+                  {formatHoraRel(t - t0)}
+                </text>
+              </g>
+            )
+          })}
+
           {yTicks.map((temp, i) => {
             const y = yp(temp)
             if (y < PAD_TOP - 2 || y > PAD_TOP + plotH + 2) return null
@@ -362,13 +429,11 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
             )
           })}
 
-          {/* Curva teórica: punteada celeste */}
           {teoPath && (
             <path d={teoPath} stroke="#64B5F6" strokeWidth={1.5} strokeDasharray="5,4"
               fill="none" clipPath={`url(#${clipId})`} />
           )}
 
-          {/* Nodos de la curva teórica */}
           {teoNodes.map((node, i) => {
             const x = xp(node.t)
             const y = yp(node.temp)
@@ -380,37 +445,17 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
             )
           })}
 
-          {/* Curva real: sólida naranja */}
           {realPath && (
             <path d={realPath} stroke="#FF6B35" strokeWidth={2}
               fill="none" clipPath={`url(#${clipId})`} />
           )}
 
-          {/* Línea vertical "ahora" en verde */}
           {xNow !== null && (
             <line x1={xNow} y1={PAD_TOP} x2={xNow} y2={PAD_TOP + plotH}
               stroke="#4CAF50" strokeWidth={1.5} opacity={0.65} />
           )}
-
-          {/* Etiquetas eje X en nodos teóricos */}
-          {(() => {
-            const seen: number[] = []
-            return teoNodes.map((node, i) => {
-              const x = xp(node.t)
-              if (x < PAD_LEFT || x > PAD_LEFT + plotW) return null
-              if (seen.some(sx => Math.abs(sx - x) < 32)) return null
-              seen.push(x)
-              return (
-                <text key={`xl${i}`} x={x} y={PAD_TOP + plotH + 15}
-                  fill="#888888" fontSize={8} textAnchor="middle" opacity={0.8}>
-                  {formatHoraRel(node.t - t0)}
-                </text>
-              )
-            })
-          })()}
         </svg>
 
-        {/* Tooltip anclado a la línea verde */}
         {tooltip && (
           <div
             className="absolute top-8 bg-neutral-800/95 border border-neutral-700 rounded-lg px-3 py-2 text-xs pointer-events-none"
