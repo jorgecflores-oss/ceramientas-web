@@ -309,7 +309,21 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     return teoricoEf!.map((p, i) => `${i === 0 ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`).join(' ')
   }, [hayTeoricoEf, teoricoEf, tMin, tMax, yMin, yMax, svgW])
 
-  const yTicks = useMemo(() => ticksRedondos(yMin, yMax, 6), [yMin, yMax])
+  // Ticks eje Y: en vista completa, solo nodos teóricos (como antes del zoom).
+  // Con zoom activo, grilla completa de valores redondos para leer y comparar desvíos.
+  const yTicks = useMemo(() => {
+    if (!vista) {
+      const nodeTemps = hayTeoricoEf ? [...new Set(teoricoEf!.map(p => Math.round(p.temp)))] : []
+      const all = [Math.round(yMin), ...nodeTemps, Math.round(yMax)]
+      const sorted = [...new Set(all)].sort((a, b) => a - b)
+      const deduped: number[] = []
+      for (const v of sorted) {
+        if (deduped.length === 0 || v - deduped[deduped.length - 1] >= 15) deduped.push(v)
+      }
+      return deduped
+    }
+    return ticksRedondos(yMin, yMax, 6)
+  }, [vista, hayTeoricoEf, teoricoEf, yMin, yMax])
   const xTicks = useMemo(() => ticksTiempo(tMin, tMax, 5), [tMin, tMax])
 
   const xp = (t: number) => PAD_LEFT + ((t - tMin) / (tMax - tMin)) * plotW
@@ -400,7 +414,23 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
             )
           })}
 
-          {xTicks.map((t, i) => {
+          {!vista && (() => {
+            const seen: number[] = []
+            return teoNodes.map((node, i) => {
+              const x = xp(node.t)
+              if (x < PAD_LEFT || x > PAD_LEFT + plotW) return null
+              if (seen.some(sx => Math.abs(sx - x) < 32)) return null
+              seen.push(x)
+              return (
+                <text key={`xl${i}`} x={x} y={PAD_TOP + plotH + 15}
+                  fill="#888888" fontSize={8} textAnchor="middle" opacity={0.8}>
+                  {formatHoraRel(node.t - t0)}
+                </text>
+              )
+            })
+          })()}
+
+          {vista && xTicks.map((t, i) => {
             const x = xp(t)
             if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
             return (
