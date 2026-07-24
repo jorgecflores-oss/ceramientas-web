@@ -10,6 +10,17 @@ import type { Programa, Paso } from '../types/horno'
 const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
 const tieneActivos = (prog: Programa) => prog.pasos.some(pasoActivo)
 
+function normalizarSignosRampa(pasos: Paso[]): Paso[] {
+  return pasos.map((paso, i) => {
+    if (i === 0) return paso
+    const anterior = pasos[i - 1]
+    if (paso.velocidad > 0 && paso.temperatura < anterior.temperatura) {
+      return { ...paso, velocidad: -paso.velocidad }
+    }
+    return paso
+  })
+}
+
 // Aplica tempFinal al último paso activo, igual que matchPrograma.
 function pasosEfectivos(prog: Programa): Paso[] {
   const activos = prog.pasos.filter(pasoActivo)
@@ -169,9 +180,10 @@ export function ProgramasPage() {
     feedbackBoton()
     setGuardandoPasos(true)
     try {
-      await postPrograma(horno.hornoId, editPasos.idx, { nombre, pasos: editPasos.pasos })
-      const tempFinal = [...editPasos.pasos].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
-      actualizarLocal(editPasos.idx, { nombre, pasos: editPasos.pasos, tempFinal })
+      const pasosNormalizados = normalizarSignosRampa(editPasos.pasos)
+      await postPrograma(horno.hornoId, editPasos.idx, { nombre, pasos: pasosNormalizados })
+      const tempFinal = [...pasosNormalizados].reverse().find(p => p.temperatura > 0)?.temperatura ?? 0
+      actualizarLocal(editPasos.idx, { nombre, pasos: pasosNormalizados, tempFinal })
       setEditPasos(null)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error guardando pasos'
@@ -231,7 +243,7 @@ export function ProgramasPage() {
     if (!nombre) { alert('El nombre no puede estar vacío'); return }
     const slot = slotLibre()
     if (slot === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
-    const pasosParaFirmware = nuevoPrograma.pasos.map(p => ({ ...p, velocidad: Math.round(p.velocidad * 10) }))
+    const pasosParaFirmware = normalizarSignosRampa(nuevoPrograma.pasos.map(p => ({ ...p, velocidad: Math.round(p.velocidad * 10) })))
     feedbackBoton()
     setGuardandoNuevo(true)
     try {

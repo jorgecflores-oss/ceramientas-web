@@ -139,12 +139,14 @@ PWA debe funcionar 3 escenarios:
 - Feat (2026-07-15): Web Push — push-worker/ (Cloudflare Worker + Durable Object MQTT→push), src/sw.ts, pushService.ts, botón campana HornoPage
 - Feat (2026-07-15): Notificaciones ntfy.sh — firmware HTTP POST a ntfy.sh en paralelo a MQTT; botón campana abre ntfy.sh/ceramientas-{hornoId} para suscribirse sin servidor
 - Fix (2026-07-15): UX notificaciones — elimina botón campana; modal ntfy se muestra automáticamente la primera vez por hornoId (flag localStorage); instrucciones paso a paso para descargar y configurar la app ntfy
+- Fix (2026-07-16): postOTA con fallback MQTT — reemplaza implementación HTTP-only que fallaba con "No se pudo encontrar el horno" en hornos vinculados solo por MQTT
+- Fix (2026-07-24): normalización signos rampa al guardar — `normalizarSignosRampa()` en ProgramasPage corrige velocidad negativa automáticamente en `guardarNuevo` y `guardarPasos` cuando temperatura del paso es menor a la del anterior
 
 ## Notas arquitectura relevantes
 
 ### OTA (ConfigPage)
-- `postOTA()` en hornoService.ts: HTTP-only (no MQTT fallback), con retry 401.
-- `getOTAStatus()`: usa `resolverCachedIP()` (sin probe AP) para no agregar 500ms por poll.
+- `postOTA()` en hornoService.ts: usa `hornoRequest()` con fallback MQTT. Antes era HTTP-only y tiraba "No se pudo encontrar el horno" cuando el horno fue vinculado solo por MQTT (sin IP cacheada).
+- `getOTAStatus()`: sigue siendo HTTP-only via `resolverCachedIP()` (sin probe AP) para no agregar 500ms por poll. Si el trigger fue por MQTT y no hay IP cacheada, los 4 polls retornan null y la UI muestra 'current' — pero el OTA SÍ se disparó en el firmware igualmente.
 - Polling cada 2s. Si 4 polls sin `enProgreso=true` → no hay update. Si deja de responder tras `enProgreso=true` → reiniciando → done.
 
 ### Configurar WiFi (ConfigPage)
@@ -158,6 +160,9 @@ PWA debe funcionar 3 escenarios:
 - Custom (idx 4-23): editar tempFinal + editar pasos + borrar → DELETE /programas/{idx}.
 - Velocidad almacenada en firmware como °C/min × 10. UI muestra y edita en °C/min (float), convierte con `× 10` al guardar.
 - Tras guardar exitoso: actualiza Zustand store + localStorage (PROGRAMAS_CACHE) sin refetch.
+- **Normalización de signos de rampa** — `normalizarSignosRampa(pasos)` (top-level, antes de `pasosEfectivos`) corrige automáticamente el signo de velocidad al guardar: si `paso.velocidad > 0` y `paso.temperatura < anterior.temperatura`, flipa a negativo. Se aplica en dos puntos:
+  - `guardarNuevo`: envuelve el `.map(×10)` → `pasosParaFirmware` ya llega normalizado al POST y a `actualizarLocal`.
+  - `guardarPasos`: `pasosNormalizados = normalizarSignosRampa(editPasos.pasos)` antes del POST, usado también en `tempFinal` y `actualizarLocal`. Paso 0 nunca se toca (sin anterior). El firmware tiene la misma lógica en `editarPrograma()` al confirmar el campo Rampa.
 - ProgramasPage refetchea siempre al montar (sin guard `programas.length > 0`) para evitar estado local obsoleto.
 - Antes de ejecutar un custom (idx ≥ 4): re-POST los pasos vía `postPrograma` para garantizar que la EEPROM tiene los datos actuales. El error se traga si falla (se asume que el usuario ya guardó antes por HTTP).
 - `STORAGE_KEYS.ULTIMO_PROG(hornoId)` guarda el idx del último programa ejecutado desde la webapp.
