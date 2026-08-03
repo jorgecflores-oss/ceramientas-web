@@ -332,12 +332,24 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const prev = get().historialTemps[id] ?? []
     const t0 = get().tIniciosMap[id] ?? prev[0]?.t ?? puntosFirmware[0].t
     const now = Date.now()
-    const combinado = [...prev]
-    for (const pf of puntosFirmware) {
-      const yaExiste = prev.some(p => Math.abs(p.t - pf.t) < 45000)
-      if (!yaExiste) combinado.push(pf)
+
+    // Solo rellenar huecos reales en la cobertura propia — no competir
+    // con datos en vivo ya presentes en ese tramo.
+    const GAP_MS = 90000
+    const huecos: [number, number][] = []
+    if (prev.length === 0) {
+      huecos.push([t0, now])
+    } else {
+      if (prev[0].t - t0 > GAP_MS) huecos.push([t0, prev[0].t])
+      for (let i = 1; i < prev.length; i++) {
+        if (prev[i].t - prev[i - 1].t > GAP_MS) huecos.push([prev[i - 1].t, prev[i].t])
+      }
     }
-    combinado.sort((a, b) => a.t - b.t)
+    const rellenoFw = puntosFirmware.filter(pf =>
+      huecos.some(([desde, hasta]) => pf.t > desde && pf.t < hasta)
+    )
+
+    const combinado = [...prev, ...rellenoFw].sort((a, b) => a.t - b.t)
     const nuevo = combinado.length > MAX_HISTORIAL
       ? downsamplePorBuckets(combinado, t0, now, MAX_HISTORIAL)
       : combinado
