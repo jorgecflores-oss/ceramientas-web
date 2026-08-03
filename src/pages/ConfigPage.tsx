@@ -110,6 +110,26 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     }
   }
 
+  async function compartirHorno() {
+    if (!horno?.hornoId || !pass) return
+    feedbackBoton()
+    const texto = `${horno.hornoId}:${pass}`
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'ID horno Ceramientas', text: texto })
+      } catch {
+        // cancelado, ignorar
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(texto)
+        alert('ID copiado. Pegalo donde quieras compartirlo.')
+      } catch {
+        alert('No se pudo copiar ID.')
+      }
+    }
+  }
+
   function desvincularHorno() {
     if (!horno) return
     quitarHorno(horno.hornoId)
@@ -123,17 +143,6 @@ export function ConfigPage({ onAgregarHorno }: Props) {
 
   async function abrirConfigWifi() {
     feedbackBoton()
-    setWifiStep('detectando')
-    // 1. Probar si el AP del firmware responde (usuario conectado al hotspot)
-    try {
-      const resp = await fetch(`http://${AP_IP}/info`, { signal: AbortSignal.timeout(800) })
-      if (resp.ok) {
-        setWifiUrl(`http://${AP_IP}/`)
-        setWifiStep('listo')
-        return
-      }
-    } catch {}
-    // 2. Usar IP LAN cacheada
     if (horno?.hornoId) {
       const ip = getCachedIP(horno.hornoId)
       if (ip) {
@@ -142,7 +151,6 @@ export function ConfigPage({ onAgregarHorno }: Props) {
         return
       }
     }
-    // 3. No hay ruta disponible — mostrar instrucciones
     setWifiStep('instrucciones')
   }
 
@@ -378,6 +386,20 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                   <p className="text-xs text-neutral-500 mt-0.5">
                     {versionFw ? `v${versionFw} instalada` : 'Instalar nueva versión OTA'}
                   </p>
+                </div>
+                <span className="text-neutral-600">›</span>
+              </button>
+
+              <button
+                onClick={compartirHorno}
+                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 hover:bg-neutral-800 rounded-xl transition active:scale-95 duration-75"
+              >
+                <svg className="w-6 h-6 text-neutral-300 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z" />
+                </svg>
+                <div className="flex-1 text-left">
+                  <p className="text-white text-sm font-semibold">Compartir ID</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">Enviar ID para vincular en otro dispositivo</p>
                 </div>
                 <span className="text-neutral-600">›</span>
               </button>

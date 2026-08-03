@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { descubrirHornosMQTT } from '../services/mqttService'
-import { verificarHornoMQTT, getInfo } from '../services/hornoService'
+import { verificarHornoMQTT, getInfo, hornoRequest } from '../services/hornoService'
 import { feedbackBoton } from '../utils/feedback'
-import { AP_IP } from '../utils/constants'
+import { AP_IP, STORAGE_KEYS } from '../utils/constants'
 import type { InfoHorno } from '../types/horno'
 
 interface Props {
@@ -82,23 +82,34 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
     }
   }
 
-  async function vincularHorno(hornoId: string) {
-    if (!hornoId) return
+  async function vincularHorno(entrada: string) {
+    if (!entrada) return
     feedbackBoton()
     setBuscando(true)
     setError('')
+    const [hornoId, passExplicita] = entrada.includes(':')
+      ? entrada.split(':').map(s => s.trim())
+      : [entrada.trim(), undefined]
     try {
-      const result = await verificarHornoMQTT(hornoId)
+      const result = await verificarHornoMQTT(hornoId, passExplicita)
       if (!result.ok) {
         setError('Horno no responde. Verificá el ID y que el horno esté encendido.')
         return
       }
-      const passDerivada = hornoId.slice(-6).toLowerCase()
+      try {
+        const reclamo = await hornoRequest(hornoId, 'config', 'POST', JSON.stringify({ reclamar: true }))
+        const data = reclamo.data as { nuevaPass?: string }
+        if (data.nuevaPass) localStorage.setItem(STORAGE_KEYS.PASS(hornoId), data.nuevaPass)
+      } catch {
+        localStorage.removeItem(STORAGE_KEYS.PASS(hornoId))
+        setError('Pass incorrecta. Pedí el ID actualizado a quien te lo compartió.')
+        return
+      }
       agregarHorno({
         hornoId,
         nombre: result.nombre ?? hornoId,
         version: result.version,
-      }, passDerivada)
+      }, localStorage.getItem(STORAGE_KEYS.PASS(hornoId)) ?? '')
       setHornoActivo(hornoId)
       onVolver?.()
     } catch {
@@ -202,7 +213,7 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="ID horno manual"
+                placeholder="ID horno (o ID:pass)"
                 value={hornoIdInput}
                 onChange={(e) => setHornoIdInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && vincularHorno(hornoIdInput.trim())}

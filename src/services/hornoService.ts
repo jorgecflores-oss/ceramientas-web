@@ -161,9 +161,39 @@ async function resolverIP(hornoId: string): Promise<string | null> {
   return getCachedIP(hornoId)
 }
 
-class FirmwareError extends Error {}
+class FirmwareError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
 
-export async function hornoRequest(
+async function autoSanarPassword(hornoId: string): Promise<boolean> {
+  const yaConocido = useHornoStore.getState().hornos.some(h => h.hornoId === hornoId)
+  if (!yaConocido) return false
+  const keyPass = STORAGE_KEYS.PASS(hornoId)
+  const passActual = localStorage.getItem(keyPass)
+  const derivada = hornoId.slice(-6).toLowerCase()
+  const invertida = derivada.split('').reverse().join('')
+  const candidata = passActual === derivada ? invertida : derivada
+  localStorage.setItem(keyPass, candidata)
+  try {
+    const resp = await mqttRequest(hornoId, 'config', 'POST', JSON.stringify({ reclamar: true }), 6000)
+    if (resp.status === 200) {
+      const data = resp.data as { nuevaPass?: string }
+      if (data.nuevaPass) localStorage.setItem(keyPass, data.nuevaPass)
+      return true
+    }
+  } catch {
+    // sigue abajo a revertir
+  }
+  if (passActual) localStorage.setItem(keyPass, passActual)
+  else localStorage.removeItem(keyPass)
+  return false
+}
+
+async function hornoRequestInterno(
   hornoId: string,
   path: string,
   method: 'GET' | 'POST' | 'DELETE',
@@ -187,33 +217,49 @@ export async function hornoRequest(
       const data = await resp.json().catch(() => ({}))
       if (!resp.ok) {
         const firmwareError = (data as { error?: string }).error
-        throw new FirmwareError(firmwareError ?? `HTTP ${resp.status}`)
+        throw new FirmwareError(firmwareError ?? `HTTP ${resp.status}`, resp.status)
       }
       cacheIP(hornoId, ip)
       return { status: resp.status, data, via: 'http' }
     } catch (e) {
-      // Errores HTTP del firmware (4xx/5xx): propagar, no intentar MQTT
       if (e instanceof FirmwareError) throw e
       // Error de red/timeout: caer a MQTT
     }
   }
 
   const resultado = await mqttRequest(hornoId, path, method, body)
-  // Propagar errores del firmware igual que en la ruta HTTP
   if (resultado.status >= 400) {
     const errData = resultado.data as { error?: string }
-    throw new FirmwareError(errData?.error ?? `Error ${resultado.status}`)
+    throw new FirmwareError(errData?.error ?? `Error ${resultado.status}`, resultado.status)
   }
   return { ...resultado, via: 'mqtt' }
 }
 
+export async function hornoRequest(
+  hornoId: string,
+  path: string,
+  method: 'GET' | 'POST' | 'DELETE',
+  body?: string
+): Promise<{ status: number; data: unknown; via: 'http' | 'mqtt' }> {
+  try {
+    return await hornoRequestInterno(hornoId, path, method, body)
+  } catch (e) {
+    if (e instanceof FirmwareError && e.status === 401) {
+      const sanado = await autoSanarPassword(hornoId)
+      if (sanado) return await hornoRequestInterno(hornoId, path, method, body)
+    }
+    throw e
+  }
+}
+
 export async function verificarHornoMQTT(
-  hornoId: string
+  hornoId: string,
+  passExplicita?: string
 ): Promise<{ ok: boolean; nombre?: string; version?: string }> {
-  const passDerivada = hornoId.slice(-6).toLowerCase()
+  const pass = (passExplicita ?? hornoId.slice(-6)).toLowerCase()
   const keyPass = STORAGE_KEYS.PASS(hornoId)
   const passPrevia = localStorage.getItem(keyPass)
-  localStorage.setItem(keyPass, passDerivada)
+  localStorage.setItem(keyPass, pass)
   try {
     const resp = await mqttRequest(hornoId, 'info', 'GET', undefined, 6000)
     if (resp.status === 200) {
