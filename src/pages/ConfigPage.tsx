@@ -588,7 +588,9 @@ export function ConfigPage({ onAgregarHorno }: Props) {
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
           <div className="bg-neutral-900 rounded-2xl p-6 max-w-sm w-full border border-neutral-800">
             <h3 className="font-bold text-lg mb-2">¿Desvincular {horno?.nombre}?</h3>
-            <p className="text-sm text-neutral-400 mb-6">Deberás buscarlo de nuevo para reconectarlo.</p>
+            <p className="text-sm text-neutral-400 mb-6">
+              No vas a poder redetectarlo solo — ya quedó reclamado. Necesitás el ID:pass desde otro dispositivo que lo tenga vinculado ("Compartir ID"), o resetear el horno físico (↑↓ 10 seg) si este era el único.
+            </p>
             <div className="flex gap-2">
               <button
                 onClick={() => setConfirmarDesvincular(false)}
