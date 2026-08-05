@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   INICIO: (id: string) => `@ceramientas_inicio_${id}`,
   PROGRAMAS_CACHE: (id: string) => `@ceramientas_programas_${id}`,
   CURVA: (id: string) => `@ceramientas_curva_${id}`,
+  CURVA_META: (id: string) => `@ceramientas_curva_meta_${id}`,
   POTENCIA: (id: string) => `@ceramientas_potencia_${id}`,
   ULTIMO_YMAX: (id: string) => `@ceramientas_ymax_${id}`,
   SNAPSHOT: (id: string) => `@ceramientas_snapshot_${id}`,

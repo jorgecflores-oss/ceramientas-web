@@ -9,6 +9,7 @@ import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
 import { STORAGE_KEYS } from '../utils/constants'
 import type { PuntoCurva } from '../types/horno'
+import { esProcesoActivo, esProgramaActivo } from '../types/horno'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
   for (let i = 1; i < puntos.length; i++) {
@@ -43,7 +44,6 @@ export function HornoPage() {
   const ultimoVia = useHornoStore((s) => hornoId ? s.ultimoVia[hornoId] ?? null : null)
   const ultimoAt = useHornoStore((s) => hornoId ? s.ultimoRespuestaAt[hornoId] ?? 0 : 0)
   const setEstado = useHornoStore((s) => s.setEstado)
-  const pushTemp = useHornoStore((s) => s.pushTemp)
   const historialTemp = useHornoStore((s) => s.historialTemp)
   const puntosTeoricos = useHornoStore((s) => s.puntosTeoricos)
   const setCurvaTeorica = useHornoStore((s) => s.setCurvaTeorica)
@@ -72,14 +72,23 @@ export function HornoPage() {
 
   useEffect(() => {
     if (!horno) return
+    let ultimoFetchCurva = 0
     const unsub = suscribirEstado(horno.hornoId, (data) => {
       setEstado(data)
       registrarRespuesta(horno.hornoId, 'mqtt')
-      const activo = data.estado === 'ejecutando' || data.estado === 'rampa' || data.estado === 'meseta'
-      if (activo) pushTemp(data.temperatura)
+      if (esProcesoActivo(data.estado)) {
+        const ahora = Date.now()
+        if (ahora - ultimoFetchCurva >= 5000) {
+          ultimoFetchCurva = ahora
+          const desde = useHornoStore.getState().curvaDesdeMap[horno.hornoId] ?? 0
+          getCurva(horno.hornoId, desde)
+            .then(resp => useHornoStore.getState().aplicarCurvaFirmware(horno.hornoId, resp))
+            .catch(e => console.error('[CURVA_INCREMENTAL]', e))
+        }
+      }
     })
     return unsub
-  }, [horno, setEstado, pushTemp, registrarRespuesta])
+  }, [horno, setEstado, registrarRespuesta])
 
   useEffect(() => {
     loadCurvaFromStorage()
@@ -297,58 +306,45 @@ export function HornoPage() {
       }
     }
 
-    try {
-      const curva = await getCurva(hornoId) as { pts?: { m: number; t: number }[] }
-      if (curva?.pts?.length) {
-        const t0Actual = useHornoStore.getState().tIniciosMap[hornoId]
-        if (t0Actual) {
-          const puntosFw = curva.pts.map(p => ({ t: t0Actual + p.m * 60000, temp: p.t }))
-          useHornoStore.getState().mergeCurvaFirmware(puntosFw)
-        }
-      }
-    } catch (e) {
-      console.error('[CURVA_FIRMWARE] error', e)
-    }
   }
 
   useEffect(() => {
     const estadoActual = estado?.estado ?? null
     const prev = estadoPrevioRef.current
 
-    const actualActivo = estadoActual === 'ejecutando' ||
-                         estadoActual === 'rampa' ||
-                         estadoActual === 'meseta'
-    const prevEraActivo = prev === 'ejecutando' || prev === 'rampa' || prev === 'meseta'
+    const actualActivo   = esProcesoActivo(estadoActual)
+    const prevEraActivo  = esProcesoActivo(prev)
+    const actualPrograma = esProgramaActivo(estadoActual)
     const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado'
 
+    const iniciarSesionDirecta = () => {
+      resetHistorial()
+      clearCurvaTeorica()
+      if (hornoId) useHornoStore.getState().limpiarSnapshot(hornoId)
+    }
+
     if (prev === null && actualActivo) {
-      // App abrió con proceso corriendo. Validar si el historial en memoria corresponde
-      // al proceso actual antes de recalcular la curva teórica.
       const procesoMs = ((estado?.horas ?? 0) * 60 + (estado?.minutos ?? 0)) * 60000
       if (procesoMs === 0) {
-        // Proceso recién iniciado: hay temp real disponible en estado.temperatura,
-        // usarla en vez de la tempBase=20 hardcodeada del path de reconexión.
-        calcularYGuardarCurva(true)
+        if (actualPrograma) calcularYGuardarCurva(true)
+        else iniciarSesionDirecta()
       } else {
         if (hornoId) {
-          // Mid-process real: verificar si el último punto guardado cae dentro de la ventana del proceso.
           const histActual = useHornoStore.getState().historialTemps[hornoId] ?? []
           if (histActual.length > 0) {
             const cutoffT = Date.now() - procesoMs - 5 * 60000
-            if (histActual[histActual.length - 1].t < cutoffT) {
-              resetHistorial()
-            }
+            if (histActual[histActual.length - 1].t < cutoffT) resetHistorial()
           }
         }
-        calcularYGuardarCurva(false)
+        if (actualPrograma) calcularYGuardarCurva(false)
       }
     } else if ((prev === 'idle' || prev === 'finalizado') && actualActivo) {
-      calcularYGuardarCurva(true)
+      if (actualPrograma) calcularYGuardarCurva(true)
+      else iniciarSesionDirecta()
     } else if (prevEraActivo && actualInactivo) {
       clearCurvaTeorica()
       useHornoStore.getState().flushHistorial()
     } else if (prev === null && actualInactivo) {
-      // App recargó con el horno ya detenido: guardar snapshot de la última horneada y limpiar
       clearCurvaTeorica()
     }
 
@@ -361,10 +357,8 @@ export function HornoPage() {
   const temp = estado?.temperatura ?? 0
   const tempObj = estado?.tempObj ?? 0
   const estadoTxt = estado?.estado ?? 'sin datos'
-  const enProceso =
-    estadoTxt === 'ejecutando' ||
-    estadoTxt === 'rampa' ||
-    estadoTxt === 'meseta'
+  const enProceso = esProcesoActivo(estadoTxt)
+  const enDirecta = estadoTxt === 'conexion_directa'
   const mesetaActual = estadoTxt === 'meseta' ? mesetaRestante(puntosTeoricos, Date.now()) : null
 
   const finalizadoOK =
@@ -405,7 +399,7 @@ export function HornoPage() {
           />
           <LedEstado
             activo={enProceso || finalizadoOK}
-            label={enProceso ? 'Horneando' : finalizadoOK ? 'Finalizado' : 'Detenido'}
+            label={enDirecta ? 'Relevando horno' : enProceso ? 'Horneando' : finalizadoOK ? 'Finalizado' : 'Detenido'}
             color={enProceso ? 'bg-orange-500' : finalizadoOK ? 'bg-green-500' : 'bg-neutral-600'}
           />
           <LedEstado

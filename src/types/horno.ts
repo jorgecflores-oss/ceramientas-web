@@ -11,6 +11,15 @@ export type EstadoHorno =
   | 'emergencia'
   | 'error'
   | 'sin datos'
+  | 'conexion_directa'
+
+export function esProcesoActivo(estado?: string | null): boolean {
+  return estado === 'ejecutando' || estado === 'rampa' || estado === 'meseta' || estado === 'conexion_directa'
+}
+
+export function esProgramaActivo(estado?: string | null): boolean {
+  return estado === 'ejecutando' || estado === 'rampa' || estado === 'meseta'
+}
 
 export type Page = 'horno' | 'programas' | 'historial' | 'config' | 'login'
 

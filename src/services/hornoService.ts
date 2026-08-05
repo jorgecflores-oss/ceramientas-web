@@ -45,8 +45,28 @@ export async function deleteHistorial(hornoId: string) {
   return (await hornoRequest(hornoId, 'historial', 'DELETE')).data
 }
 
-export async function getCurva(hornoId: string) {
-  return (await hornoRequest(hornoId, 'curva', 'GET')).data
+export async function getCurva(hornoId: string, desde: number = 0) {
+  return (await hornoRequest(hornoId, `curva?desde=${desde}`, 'GET')).data as {
+    epoch: number
+    total: number
+    desde: number
+    pts: { m: number; t: number }[]
+  }
+}
+
+export async function consultarInfoMQTT(
+  hornoId: string
+): Promise<{ ok: boolean; nombre?: string; version?: string; reclamado?: boolean }> {
+  try {
+    const resp = await mqttRequest(hornoId, 'info', 'GET', undefined, 6000)
+    if (resp.status === 200) {
+      const data = resp.data as { nombre?: string; version?: string; reclamado?: boolean }
+      return { ok: true, nombre: data.nombre, version: data.version, reclamado: data.reclamado }
+    }
+    return { ok: false }
+  } catch {
+    return { ok: false }
+  }
 }
 
 export async function getConfig(hornoId: string): Promise<ConfigHorno> {

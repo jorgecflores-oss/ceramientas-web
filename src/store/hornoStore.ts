@@ -27,6 +27,8 @@ interface HornoState {
   programasActivos: Record<string, Programa | null>
   puntosTeoricosMap: Record<string, PuntoCurva[]>
   tIniciosMap: Record<string, number | null>
+  curvaEpochMap: Record<string, number | null>
+  curvaDesdeMap: Record<string, number>
   tempIniciosMap: Record<string, number | null>
   mqttConectado: boolean
   ultimoVia: Record<string, 'http' | 'mqtt' | null>
@@ -59,7 +61,7 @@ interface HornoState {
   setMqttConectado: (c: boolean) => void
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
   pushTemp: (temp: number) => void
-  mergeCurvaFirmware: (puntos: { t: number; temp: number }[]) => void
+  aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; total: number; desde: number; pts: { m: number; t: number }[] }) => void
   flushHistorial: () => void
   resetHistorial: () => void
   setProgramas: (p: Programa[]) => void
@@ -152,6 +154,8 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   programasActivos: {},
   puntosTeoricosMap: {},
   tIniciosMap: {},
+  curvaEpochMap: {},
+  curvaDesdeMap: {},
   tempIniciosMap: {},
   mqttConectado: false,
   ultimoVia: {},
@@ -326,42 +330,40 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     }, 2000)
   },
 
-  mergeCurvaFirmware: (puntosFirmware) => {
-    const id = get().hornoActivoId
-    if (!id || puntosFirmware.length === 0) return
-    const prev = get().historialTemps[id] ?? []
-    const t0 = get().tIniciosMap[id] ?? prev[0]?.t ?? puntosFirmware[0].t
+  aplicarCurvaFirmware: (hornoId, resp) => {
+    const id = hornoId
+    const epochPrevio = get().curvaEpochMap[id] ?? null
+    const esNuevoEpoch = epochPrevio === null || epochPrevio !== resp.epoch
+    if (!esNuevoEpoch && resp.pts.length === 0) return
+
+    const t0 = get().tIniciosMap[id] ?? Date.now()
+    const puntosNuevos = resp.pts.map(p => ({ t: t0 + p.m * 60000, temp: p.t }))
+    const prev = esNuevoEpoch ? [] : (get().historialTemps[id] ?? [])
+    const combinado = [...prev, ...puntosNuevos]
     const now = Date.now()
-
-    // Solo rellenar huecos reales en la cobertura propia — no competir
-    // con datos en vivo ya presentes en ese tramo.
-    const GAP_MS = 90000
-    const huecos: [number, number][] = []
-    if (prev.length === 0) {
-      huecos.push([t0, now])
-    } else {
-      if (prev[0].t - t0 > GAP_MS) huecos.push([t0, prev[0].t])
-      for (let i = 1; i < prev.length; i++) {
-        if (prev[i].t - prev[i - 1].t > GAP_MS) huecos.push([prev[i - 1].t, prev[i].t])
-      }
-    }
-    const rellenoFw = puntosFirmware.filter(pf =>
-      huecos.some(([desde, hasta]) => pf.t > desde && pf.t < hasta)
-    )
-
-    const combinado = [...prev, ...rellenoFw].sort((a, b) => a.t - b.t)
     const nuevo = combinado.length > MAX_HISTORIAL
       ? downsamplePorBuckets(combinado, t0, now, MAX_HISTORIAL)
       : combinado
-    const historialTemps = { ...get().historialTemps, [id]: nuevo }
-    set({ historialTemps, historialTemp: nuevo })
 
+    const historialTemps = { ...get().historialTemps, [id]: nuevo }
+    const curvaEpochMap  = { ...get().curvaEpochMap, [id]: resp.epoch }
+    const curvaDesdeMap  = { ...get().curvaDesdeMap, [id]: resp.desde + resp.pts.length }
+    set({ historialTemps, historialTemp: nuevo, curvaEpochMap, curvaDesdeMap })
+
+    try {
+      localStorage.setItem(
+        STORAGE_KEYS.CURVA_META(id),
+        JSON.stringify({ epoch: resp.epoch, desde: resp.desde + resp.pts.length })
+      )
+    } catch (e) {
+      console.error('[aplicarCurvaFirmware meta persist]', e)
+    }
     if (debounceTimers[id]) clearTimeout(debounceTimers[id])
     debounceTimers[id] = setTimeout(() => {
       try {
         localStorage.setItem(STORAGE_KEYS.CURVA(id), JSON.stringify(nuevo))
       } catch (e) {
-        console.error('[mergeCurvaFirmware persist]', e)
+        console.error('[aplicarCurvaFirmware persist]', e)
       }
     }, 2000)
   },
@@ -386,9 +388,14 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   resetHistorial: () => {
     const id = get().hornoActivoId
     if (!id) return
-    try { localStorage.removeItem(STORAGE_KEYS.CURVA(id)) } catch {}
+    try {
+      localStorage.removeItem(STORAGE_KEYS.CURVA(id))
+      localStorage.removeItem(STORAGE_KEYS.CURVA_META(id))
+    } catch {}
     const historialTemps = { ...get().historialTemps, [id]: [] }
-    set({ historialTemps, historialTemp: [] })
+    const curvaEpochMap  = { ...get().curvaEpochMap, [id]: null }
+    const curvaDesdeMap  = { ...get().curvaDesdeMap, [id]: 0 }
+    set({ historialTemps, historialTemp: [], curvaEpochMap, curvaDesdeMap })
   },
 
   setProgramas: (p) => {
@@ -478,6 +485,27 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   loadCurvaFromStorage: () => {
     const id = get().hornoActivoId
     if (!id) return
+
+    // Curva real + epoch/desde: independiente de si hay programa (cubre Conexión Directa)
+    try {
+      const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(id))
+      if (metaRaw) {
+        const meta = JSON.parse(metaRaw) as { epoch: number; desde: number }
+        const curvaEpochMap = { ...get().curvaEpochMap, [id]: meta.epoch }
+        const curvaDesdeMap = { ...get().curvaDesdeMap, [id]: meta.desde }
+        set({ curvaEpochMap, curvaDesdeMap })
+      }
+      const rawCurva = localStorage.getItem(STORAGE_KEYS.CURVA(id))
+      if (rawCurva) {
+        const historial = JSON.parse(rawCurva) as { t: number; temp: number }[]
+        const historialTemps = { ...get().historialTemps, [id]: historial }
+        set({ historialTemps, historialTemp: historial })
+      }
+    } catch (e) {
+      console.error('[loadCurvaFromStorage curva real]', e)
+    }
+
+    // Curva teórica: solo si hay programa ancla guardado
     const raw = localStorage.getItem(STORAGE_KEYS.INICIO(id))
     if (!raw) return
     try {
@@ -499,16 +527,6 @@ export const useHornoStore = create<HornoState>((set, get) => ({
         tInicio: ancla.timestampInicio,
         tempInicio: ancla.tempInicio,
       })
-      try {
-        const rawCurva = localStorage.getItem(STORAGE_KEYS.CURVA(id))
-        if (rawCurva) {
-          const historial = JSON.parse(rawCurva) as { t: number; temp: number }[]
-          const historialTemps = { ...get().historialTemps, [id]: historial }
-          set({ historialTemps, historialTemp: historial })
-        }
-      } catch (e) {
-        console.error('[loadCurvaFromStorage curva real]', e)
-      }
     } catch (e) {
       console.error('[loadCurvaFromStorage]', e)
     }
