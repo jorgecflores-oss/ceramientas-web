@@ -10,6 +10,8 @@ interface AnclaStorage {
 }
 
 export interface Snapshot {
+  modo: 'programa' | 'directa'
+  programa: Programa | null
   puntosTeoricos: PuntoCurva[]
   historialTemp: { t: number; temp: number }[]
   tInicio: number
@@ -348,7 +350,8 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const historialTemps = { ...get().historialTemps, [id]: nuevo }
     const curvaEpochMap  = { ...get().curvaEpochMap, [id]: resp.epoch }
     const curvaDesdeMap  = { ...get().curvaDesdeMap, [id]: resp.desde + resp.pts.length }
-    set({ historialTemps, historialTemp: nuevo, curvaEpochMap, curvaDesdeMap })
+    const tIniciosMap    = { ...get().tIniciosMap, [id]: t0 }
+    set({ historialTemps, historialTemp: nuevo, curvaEpochMap, curvaDesdeMap, tIniciosMap })
 
     try {
       localStorage.setItem(
@@ -461,9 +464,12 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const tInicioActual = s.tIniciosMap[id] ?? null
     const puntosTeoricoActuales = s.puntosTeoricosMap[id] ?? []
     const histActual = s.historialTemps[id] ?? []
-    if (!tInicioActual || puntosTeoricoActuales.length <= 1 || histActual.length === 0) return
+    if (!tInicioActual || histActual.length === 0) return
     const lastDataT = histActual[histActual.length - 1].t
+    const esPrograma = puntosTeoricoActuales.length > 1
     const snap: Snapshot = {
+      modo: esPrograma ? 'programa' : 'directa',
+      programa: esPrograma ? (s.programasActivos[id] ?? null) : null,
       puntosTeoricos: puntosTeoricoActuales,
       historialTemp: histActual,
       tInicio: tInicioActual,

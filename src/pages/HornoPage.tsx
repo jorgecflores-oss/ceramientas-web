@@ -10,6 +10,7 @@ import { feedbackBoton } from '../utils/feedback'
 import { STORAGE_KEYS } from '../utils/constants'
 import type { PuntoCurva } from '../types/horno'
 import { esProcesoActivo, esProgramaActivo } from '../types/horno'
+import { exportarInformeHorneada, exportarCurvaHorno } from '../utils/exportarInforme'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
   for (let i = 1; i < puntos.length; i++) {
@@ -342,8 +343,19 @@ export function HornoPage() {
       if (actualPrograma) calcularYGuardarCurva(true)
       else iniciarSesionDirecta()
     } else if (prevEraActivo && actualInactivo) {
-      clearCurvaTeorica()
-      useHornoStore.getState().flushHistorial()
+      if (hornoId) {
+        const desde = useHornoStore.getState().curvaDesdeMap[hornoId] ?? 0
+        getCurva(hornoId, desde)
+          .then(resp => useHornoStore.getState().aplicarCurvaFirmware(hornoId, resp))
+          .catch(e => console.error('[CURVA_FINAL]', e))
+          .finally(() => {
+            clearCurvaTeorica()
+            useHornoStore.getState().flushHistorial()
+          })
+      } else {
+        clearCurvaTeorica()
+        useHornoStore.getState().flushHistorial()
+      }
     } else if (prev === null && actualInactivo) {
       clearCurvaTeorica()
     }
@@ -497,6 +509,17 @@ export function HornoPage() {
             className="px-12 py-3 bg-red-600 hover:bg-red-700 active:scale-95 rounded-lg font-bold tracking-wider transition-all duration-75"
           >
             PARAR
+          </button>
+        </div>
+      )}
+
+      {!enProceso && snapshot && (
+        <div className="flex justify-center mb-4">
+          <button
+            onClick={() => snapshot.modo === 'directa' ? exportarCurvaHorno(snapshot) : exportarInformeHorneada(snapshot)}
+            className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 active:scale-95 rounded-lg font-semibold tracking-wide transition-all duration-75 border border-neutral-700"
+          >
+            {snapshot.modo === 'directa' ? 'Exportar curva del horno' : 'Exportar informe'}
           </button>
         </div>
       )}
