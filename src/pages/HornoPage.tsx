@@ -256,9 +256,18 @@ export function HornoPage() {
     // guardado (ya no se adivina con 20°C fijo).
     let tempAncla = tempCapture
     let tAncla = tCapture
+    let yaHayAncla = false
     if (!esNuevo) {
-      const procesoMs = ((estado.horas ?? 0) * 60 + (estado.minutos ?? 0)) * 60000
-      tAncla = tCapture - procesoMs
+      const s = useHornoStore.getState()
+      const anclaTeoricaValida = (s.puntosTeoricosMap[hornoId]?.length ?? 0) > 1
+      if (anclaTeoricaValida && s.tIniciosMap[hornoId] && s.tempIniciosMap[hornoId] != null) {
+        yaHayAncla = true
+        tAncla = s.tIniciosMap[hornoId]!
+        tempAncla = s.tempIniciosMap[hornoId]!
+      } else {
+        const procesoMs = ((estado.horas ?? 0) * 60 + (estado.minutos ?? 0)) * 60000
+        tAncla = tCapture - procesoMs
+      }
       try {
         let desde = 0
         let epochBuffer = 0
@@ -273,12 +282,13 @@ export function HornoPage() {
           if (curva.pts.length === 0 || desde >= totalBuffer) break
         }
         if (todos.length) {
-          tempAncla = todos[0].t
+          if (!yaHayAncla) tempAncla = todos[0].t
           useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, tAncla, todos)
         }
       } catch (e) {
         console.error('[CURVA_ANCLA_RECONEXION] error', e)
       }
+      if (yaHayAncla) return
     }
 
     const aplicarCurva = (progs: typeof programas) => {
