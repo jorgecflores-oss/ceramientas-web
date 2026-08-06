@@ -41,6 +41,7 @@ src/
     horno.ts          ← EstadoMQTT, Programa, InfoHorno
   utils/
     constants.ts      ← broker MQTT, storage keys
+    exportarInforme.ts ← exportarInformeHorneada / exportarCurvaHorno (.txt para IA)
   App.tsx             ← router login/horno
   main.tsx
   index.css           ← @import "tailwindcss"
@@ -141,6 +142,14 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-07-15): UX notificaciones — elimina botón campana; modal ntfy se muestra automáticamente la primera vez por hornoId (flag localStorage); instrucciones paso a paso para descargar y configurar la app ntfy
 - Fix (2026-07-16): postOTA con fallback MQTT — reemplaza implementación HTTP-only que fallaba con "No se pudo encontrar el horno" en hornos vinculados solo por MQTT
 - Fix (2026-07-24): normalización signos rampa al guardar — `normalizarSignosRampa()` en ProgramasPage corrige velocidad negativa automáticamente en `guardarNuevo` y `guardarPasos` cuando temperatura del paso es menor a la del anterior
+- Fix (2026-08-04): advertencia real en modal de desvincular horno — explica que el horno quedó reclamado y que necesita "Compartir ID" de otro dispositivo o reset físico (↑↓ 10 seg)
+- Feat (2026-08-04): filtrar hornos reclamados en detección — `consultarInfoMQTT()` consulta `/info` vía MQTT; `buscarHornos` en LoginPage solo muestra hornos con `reclamado: false`; si se detectan hornos pero todos reclamados, muestra error específico
+- Feat (2026-08-05): v3.4.13 — curva incremental `getCurva(id, desde)`, `aplicarCurvaFirmware` reemplaza `mergeCurvaFirmware`; epoch detecta nueva sesión; `curvaEpochMap`/`curvaDesdeMap`/`CURVA_META` en store; throttle 5s en fetch MQTT; fetch final al terminar proceso
+- Feat (2026-08-05): v3.4.13 — soporte Conexión Directa: estado `conexion_directa` en `EstadoHorno`; helpers `esProcesoActivo`/`esProgramaActivo`; `iniciarSesionDirecta()` en HornoPage; `guardarSnapshot` sin exigir curva teórica; `Snapshot` suma `modo`/`programa`
+- Feat (2026-08-05): v3.4.13 — exportación informe: `exportarInforme.ts` genera .txt listo para IA con prompt, tabla programa y datos; botón "Exportar informe" / "Exportar curva del horno" en HornoPage cuando hay snapshot
+- Fix (2026-08-05): v3.4.13 — ancla curva teórica usa primer punto real del firmware al reconectar mid-process (elimina fallback 20°C hardcodeado)
+- Fix (2026-08-06): v3.4.13 — ConfigPage fetch `version.json` con `cache: 'no-store'` para evitar falso "sin update"
+- Fix (2026-08-06): v3.4.13 — `CURVA_META` persiste `t0` para restaurar alineación de Conexión Directa al recargar
 
 ## Notas arquitectura relevantes
 
@@ -184,6 +193,13 @@ PWA debe funcionar 3 escenarios:
 - Guard cambiado a `puntosEf.length === 0 && !hayTeoricoEf`: si hay curva teórica calculada pero aún no llegó ningún dato real (programa recién arrancado o app abierta mid-process), muestra el gráfico con solo la curva teórica en lugar de "Sin datos aún".
 - `maxTempReal` protegido con `puntosEf.length > 0 ? ... : 0` para evitar `Math.max()` vacío.
 - `CartelFijo` (tooltip) no se muestra cuando `puntosEf.length === 0` (evita "Real: 0°C").
+
+### Filtro hornos reclamados en detección (LoginPage)
+
+- `consultarInfoMQTT(hornoId)` en hornoService.ts — consulta `GET /info` vía MQTT con timeout 6s. Retorna `{ ok, nombre, version, reclamado }`. Sin efectos secundarios (no cachea IP, no modifica store).
+- `buscarHornos` en LoginPage: el callback de `descubrirHornosMQTT` llama `consultarInfoMQTT` por cada horno encontrado. Solo agrega al listado si `info.ok && !info.reclamado`.
+- Si `encontrados.length === 0` → error "No se detectaron hornos". Si `encontrados.length > 0` pero `disponiblesCount === 0` → error "Se detectaron hornos, pero ya están vinculados a otro dispositivo."
+- Requiere firmware v3.5.x con campo `reclamado` en `/info`. En firmware anterior, `info.reclamado` es `undefined` → `!info.reclamado` es `true` → todos los hornos aparecen (comportamiento compatble hacia atrás).
 
 ### Notificaciones MQTT tipadas (HornoPage)
 - `suscribirNotif` conectado al topic `ceramientas/{id}/notif`.

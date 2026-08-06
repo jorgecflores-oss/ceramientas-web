@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { descubrirHornosMQTT } from '../services/mqttService'
-import { verificarHornoMQTT, getInfo, hornoRequest } from '../services/hornoService'
+import { verificarHornoMQTT, getInfo, hornoRequest, consultarInfoMQTT } from '../services/hornoService'
 import { feedbackBoton } from '../utils/feedback'
 import { AP_IP, STORAGE_KEYS } from '../utils/constants'
 import type { InfoHorno } from '../types/horno'
@@ -65,14 +65,21 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
         return c - 1
       })
     }, 1000)
+    let disponiblesCount = 0
     try {
       const encontrados = await descubrirHornosMQTT(BUSQUEDA_MS, (id) => {
-        setHornosDetectados((prev) => prev.includes(id) ? prev : [...prev, id])
+        consultarInfoMQTT(id).then((info) => {
+          if (info.ok && !info.reclamado) {
+            disponiblesCount++
+            setHornosDetectados((prev) => prev.includes(id) ? prev : [...prev, id])
+          }
+        })
       })
       if (encontrados.length === 0) {
         setError('No se detectaron hornos. Verificá que el horno esté encendido y conectado a internet.')
+      } else if (disponiblesCount === 0) {
+        setError('Se detectaron hornos, pero ya están vinculados a otro dispositivo.')
       }
-      setHornosDetectados(encontrados)
     } catch {
       setError('Error buscando hornos')
     } finally {
