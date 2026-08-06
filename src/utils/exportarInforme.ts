@@ -42,7 +42,8 @@ export function exportarInformeHorneada(snapshot: Snapshot) {
   const prompt = `Datos de una horneada de ceramica: programa teorico (rampas y temperaturas
 objetivo) y curva real registrada por el controlador. Grafica ambas curvas
 en el mismo eje de tiempo. Analisis breve: que tan bien se ajusto el horno
-al programa, donde hubo mayor desvio, si algo llama la atencion.`
+al programa, donde hubo mayor desvio, si algo llama la atencion.
+Exporta el resultado final (grafico y analisis) como PDF, tamano A4.`
 
   let tablaPrograma = 'PROGRAMA: (sin datos)\n'
   if (prog) {
@@ -94,7 +95,8 @@ export function exportarCurvaHorno(snapshot: Snapshot) {
 hasta corte de seguridad o cancelacion manual. No hay curva teorica - el
 objetivo es conocer la capacidad real de este horno. Grafica la curva,
 usa la tabla de rangos para sugerir que rampas son razonables programar
-en cada tramo sin disparar falsas alarmas de rampa lenta.`
+en cada tramo sin disparar falsas alarmas de rampa lenta.
+Exporta el resultado final (grafico y analisis) como PDF, tamano A4.`
 
   const bandas = calcularRangosRampa(snapshot.historialTemp)
   let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min)\n'
