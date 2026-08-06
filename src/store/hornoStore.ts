@@ -356,7 +356,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     try {
       localStorage.setItem(
         STORAGE_KEYS.CURVA_META(id),
-        JSON.stringify({ epoch: resp.epoch, desde: resp.desde + resp.pts.length })
+        JSON.stringify({ epoch: resp.epoch, desde: resp.desde + resp.pts.length, t0 })
       )
     } catch (e) {
       console.error('[aplicarCurvaFirmware meta persist]', e)
@@ -496,10 +496,13 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     try {
       const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(id))
       if (metaRaw) {
-        const meta = JSON.parse(metaRaw) as { epoch: number; desde: number }
+        const meta = JSON.parse(metaRaw) as { epoch: number; desde: number; t0?: number }
         const curvaEpochMap = { ...get().curvaEpochMap, [id]: meta.epoch }
         const curvaDesdeMap = { ...get().curvaDesdeMap, [id]: meta.desde }
-        set({ curvaEpochMap, curvaDesdeMap })
+        const tIniciosMap = meta.t0
+          ? { ...get().tIniciosMap, [id]: meta.t0 }
+          : get().tIniciosMap
+        set({ curvaEpochMap, curvaDesdeMap, tIniciosMap })
       }
       const rawCurva = localStorage.getItem(STORAGE_KEYS.CURVA(id))
       if (rawCurva) {

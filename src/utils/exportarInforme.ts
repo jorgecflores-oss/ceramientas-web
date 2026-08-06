@@ -40,10 +40,16 @@ export function exportarInformeHorneada(snapshot: Snapshot) {
   const nombreArchivo = `horneada_${fecha}_${slug(prog?.nombre ?? 'programa')}.txt`
 
   const prompt = `Datos de una horneada de ceramica: programa teorico (rampas y temperaturas
-objetivo) y curva real registrada por el controlador. Grafica ambas curvas
-en el mismo eje de tiempo. Analisis breve: que tan bien se ajusto el horno
-al programa, donde hubo mayor desvio, si algo llama la atencion.
-Exporta el resultado final (grafico y analisis) como PDF, tamano A4.`
+objetivo) y curva real registrada por el controlador.
+Aunque haya pocos puntos (por ejemplo, una prueba corta), grafica igual con
+los datos disponibles - no hace falta mas cantidad para que sea valido.
+Genera un archivo PDF, tamano A4, con:
+- El programa completo en una tabla clara (todos los pasos, igual que se
+  ve en la pantalla Programas de la app).
+- El grafico con ambas curvas (teorica y real) superpuestas en el mismo
+  eje de tiempo.
+- Un analisis breve: que tan bien se ajusto el horno al programa, donde
+  hubo mayor desvio, si algo llama la atencion.`
 
   let tablaPrograma = 'PROGRAMA: (sin datos)\n'
   if (prog) {
@@ -93,10 +99,14 @@ export function exportarCurvaHorno(snapshot: Snapshot) {
 
   const prompt = `Relevamiento de un horno ceramico corriendo libre (sin control de rampa),
 hasta corte de seguridad o cancelacion manual. No hay curva teorica - el
-objetivo es conocer la capacidad real de este horno. Grafica la curva,
-usa la tabla de rangos para sugerir que rampas son razonables programar
-en cada tramo sin disparar falsas alarmas de rampa lenta.
-Exporta el resultado final (grafico y analisis) como PDF, tamano A4.`
+objetivo es conocer la capacidad real de este horno.
+Aunque haya pocos puntos (por ejemplo, una prueba corta), grafica igual con
+los datos disponibles - no hace falta mas cantidad para que sea valido.
+Genera un archivo PDF, tamano A4, con:
+- El grafico de la curva real.
+- La tabla de rangos de temperatura con rampa minima/maxima/promedio.
+- Una sugerencia de que rampas son razonables programar en cada tramo sin
+  disparar falsas alarmas de rampa lenta.`
 
   const bandas = calcularRangosRampa(snapshot.historialTemp)
   let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min)\n'

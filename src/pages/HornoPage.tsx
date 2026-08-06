@@ -4,7 +4,7 @@ import { suscribirEstado, suscribirNotif, publicarComando } from '../services/mq
 import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { calcularCurvaTeorica, calcularT0Virtual } from '../utils/curvaTeorica'
+import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
 import { STORAGE_KEYS } from '../utils/constants'
@@ -251,17 +251,28 @@ export function HornoPage() {
       if (fresco) tempObj = fresco.tempObj
     }
 
+    // Ancla: temperatura/tiempo real de arranque. Nueva horneada = ahora mismo.
+    // Reconexión sin ancla previa = primer punto real que tenga el firmware
+    // guardado (ya no se adivina con 20°C fijo).
+    let tempAncla = tempCapture
+    let tAncla = tCapture
+    if (!esNuevo) {
+      try {
+        const curva = await getCurva(hornoId, 0) as { pts?: { m: number; t: number }[] }
+        if (curva?.pts?.length) {
+          tAncla = tCapture - curva.pts[0].m * 60000
+          tempAncla = curva.pts[0].t
+        }
+      } catch (e) {
+        console.error('[CURVA_ANCLA_RECONEXION] error', e)
+      }
+    }
+
     const aplicarCurva = (progs: typeof programas) => {
       const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
       if (!match) return
-      if (esNuevo) {
-        const puntos = calcularCurvaTeorica(match.pasos, tempCapture, tCapture)
-        setCurvaTeorica(match, puntos, tCapture, tempCapture)
-      } else {
-        const t0Virtual = calcularT0Virtual(match.pasos, tempCapture, tCapture, 20)
-        const puntos = calcularCurvaTeorica(match.pasos, 20, t0Virtual)
-        setCurvaTeorica(match, puntos, t0Virtual, 20)
-      }
+      const puntos = calcularCurvaTeorica(match.pasos, tempAncla, tAncla)
+      setCurvaTeorica(match, puntos, tAncla, tempAncla)
     }
 
     if (esNuevo) {
@@ -282,7 +293,6 @@ export function HornoPage() {
       if (progLocal && matchPrograma([progLocal], etapaTotal, etapa, tempObj)) {
         aplicarCurva([progLocal])
       } else {
-        // Estado local obsoleto o inexistente → traer del firmware
         try {
           const progs = await getProgramas(hornoId)
           const progFirmware = progs[idxExacto]
@@ -306,7 +316,6 @@ export function HornoPage() {
         }
       }
     }
-
   }
 
   useEffect(() => {

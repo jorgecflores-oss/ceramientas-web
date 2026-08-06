@@ -174,7 +174,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     try {
       // 1. Verificar versión disponible en GitHub
       try {
-        const ghResp = await fetch(OTA_VERSION_URL)
+        const ghResp = await fetch(OTA_VERSION_URL, { cache: 'no-store' })
         if (ghResp.ok) {
           const ghJson = await ghResp.json() as { version?: string }
           const remoteVer = (ghJson.version ?? '').trim()
