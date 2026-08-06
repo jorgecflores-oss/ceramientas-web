@@ -63,6 +63,7 @@ interface HornoState {
   setMqttConectado: (c: boolean) => void
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
   pushTemp: (temp: number) => void
+  reemplazarCurvaCompleta: (hornoId: string, epoch: number, desde: number, tAncla: number, puntos: { m: number; t: number }[]) => void
   aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; total: number; desde: number; pts: { m: number; t: number }[] }) => void
   flushHistorial: () => void
   resetHistorial: () => void
@@ -330,6 +331,22 @@ export const useHornoStore = create<HornoState>((set, get) => ({
         console.error('[pushTemp persist]', e)
       }
     }, 2000)
+  },
+
+  reemplazarCurvaCompleta: (hornoId, epoch, desde, tAncla, puntos) => {
+    const historial = puntos.map(p => ({ t: tAncla + p.m * 60000, temp: p.t }))
+    const s = get()
+    const historialTemps = { ...s.historialTemps, [hornoId]: historial }
+    const curvaEpochMap  = { ...s.curvaEpochMap, [hornoId]: epoch }
+    const curvaDesdeMap  = { ...s.curvaDesdeMap, [hornoId]: desde }
+    const tIniciosMap    = { ...s.tIniciosMap, [hornoId]: tAncla }
+    set({ historialTemps, historialTemp: historial, curvaEpochMap, curvaDesdeMap, tIniciosMap })
+    try {
+      localStorage.setItem(STORAGE_KEYS.CURVA(hornoId), JSON.stringify(historial))
+      localStorage.setItem(STORAGE_KEYS.CURVA_META(hornoId), JSON.stringify({ epoch, desde, t0: tAncla }))
+    } catch (e) {
+      console.error('[reemplazarCurvaCompleta persist]', e)
+    }
   },
 
   aplicarCurvaFirmware: (hornoId, resp) => {

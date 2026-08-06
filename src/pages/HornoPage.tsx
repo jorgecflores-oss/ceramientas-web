@@ -257,11 +257,24 @@ export function HornoPage() {
     let tempAncla = tempCapture
     let tAncla = tCapture
     if (!esNuevo) {
+      const procesoMs = ((estado.horas ?? 0) * 60 + (estado.minutos ?? 0)) * 60000
+      tAncla = tCapture - procesoMs
       try {
-        const curva = await getCurva(hornoId, 0) as { pts?: { m: number; t: number }[] }
-        if (curva?.pts?.length) {
-          tAncla = tCapture - curva.pts[0].m * 60000
-          tempAncla = curva.pts[0].t
+        let desde = 0
+        let epochBuffer = 0
+        let totalBuffer = 0
+        let todos: { m: number; t: number }[] = []
+        for (let i = 0; i < 15; i++) {
+          const curva = await getCurva(hornoId, desde) as { epoch: number; total: number; desde: number; pts: { m: number; t: number }[] }
+          epochBuffer = curva.epoch
+          totalBuffer = curva.total
+          todos = todos.concat(curva.pts)
+          desde = curva.desde + curva.pts.length
+          if (curva.pts.length === 0 || desde >= totalBuffer) break
+        }
+        if (todos.length) {
+          tempAncla = todos[0].t
+          useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, tAncla, todos)
         }
       } catch (e) {
         console.error('[CURVA_ANCLA_RECONEXION] error', e)
