@@ -1,4 +1,7 @@
+import type { Paso } from '../types/horno'
 import type { Snapshot } from '../store/hornoStore'
+
+const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
 
 function fechaISO(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10)
@@ -55,9 +58,11 @@ Genera un archivo PDF, tamano A4, con:
   if (prog) {
     tablaPrograma = `PROGRAMA: ${prog.nombre}\n`
     tablaPrograma += 'Paso | Velocidad (C/min) | Temp objetivo (C) | Meseta (min)\n'
-    prog.pasos.forEach((p, i) => {
-      tablaPrograma += `${i + 1} | ${(p.velocidad / 10).toFixed(1)} | ${p.temperatura} | ${p.tiempo}\n`
-    })
+    prog.pasos
+      .filter(pasoActivo)
+      .forEach((p, i) => {
+        tablaPrograma += `${i + 1} | ${(p.velocidad / 10).toFixed(1)} | ${p.temperatura} | ${p.tiempo}\n`
+      })
   }
 
   let tablaDatos = 'DATOS (minuto, temp teorica C, temp real C)\n'
