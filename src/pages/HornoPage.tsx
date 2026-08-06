@@ -236,6 +236,30 @@ export function HornoPage() {
     }
   }
 
+  async function resincronizarCurvaReal(hornoId: string, tAncla: number): Promise<number | null> {
+    try {
+      let desde = 0
+      let epochBuffer = 0
+      let totalBuffer = 0
+      let todos: { m: number; t: number }[] = []
+      for (let i = 0; i < 15; i++) {
+        const curva = await getCurva(hornoId, desde) as { epoch: number; total: number; desde: number; pts: { m: number; t: number }[] }
+        epochBuffer = curva.epoch
+        totalBuffer = curva.total
+        todos = todos.concat(curva.pts)
+        desde = curva.desde + curva.pts.length
+        if (curva.pts.length === 0 || desde >= totalBuffer) break
+      }
+      if (todos.length) {
+        useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, tAncla, todos)
+        return todos[0].t
+      }
+    } catch (e) {
+      console.error('[CURVA_RESYNC] error', e)
+    }
+    return null
+  }
+
   async function calcularYGuardarCurva(esNuevo: boolean) {
     if (!horno?.hornoId || !estado) return
     const hornoId     = horno.hornoId
@@ -268,26 +292,8 @@ export function HornoPage() {
         const procesoMs = ((estado.horas ?? 0) * 60 + (estado.minutos ?? 0)) * 60000
         tAncla = tCapture - procesoMs
       }
-      try {
-        let desde = 0
-        let epochBuffer = 0
-        let totalBuffer = 0
-        let todos: { m: number; t: number }[] = []
-        for (let i = 0; i < 15; i++) {
-          const curva = await getCurva(hornoId, desde) as { epoch: number; total: number; desde: number; pts: { m: number; t: number }[] }
-          epochBuffer = curva.epoch
-          totalBuffer = curva.total
-          todos = todos.concat(curva.pts)
-          desde = curva.desde + curva.pts.length
-          if (curva.pts.length === 0 || desde >= totalBuffer) break
-        }
-        if (todos.length) {
-          if (!yaHayAncla) tempAncla = todos[0].t
-          useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, tAncla, todos)
-        }
-      } catch (e) {
-        console.error('[CURVA_ANCLA_RECONEXION] error', e)
-      }
+      const primerTemp = await resincronizarCurvaReal(hornoId, tAncla)
+      if (!yaHayAncla && primerTemp !== null) tempAncla = primerTemp
       if (yaHayAncla) return
     }
 
@@ -369,7 +375,11 @@ export function HornoPage() {
             if (histActual[histActual.length - 1].t < cutoffT) resetHistorial()
           }
         }
-        if (actualPrograma) calcularYGuardarCurva(false)
+        if (actualPrograma) {
+          calcularYGuardarCurva(false)
+        } else if (hornoId) {
+          resincronizarCurvaReal(hornoId, Date.now() - procesoMs)
+        }
       }
     } else if ((prev === 'idle' || prev === 'finalizado') && actualActivo) {
       if (actualPrograma) calcularYGuardarCurva(true)
