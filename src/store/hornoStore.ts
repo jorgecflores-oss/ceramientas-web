@@ -505,10 +505,10 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const s = get()
     const id = s.hornoActivoId
     if (!id) return
-    const tInicioActual = s.tIniciosMap[id] ?? null
     const puntosTeoricoActuales = s.puntosTeoricosMap[id] ?? []
     const histActual = s.historialTemps[id] ?? []
-    if (!tInicioActual || histActual.length === 0) return
+    if (histActual.length === 0) return
+    const tInicioActual = s.tIniciosMap[id] ?? histActual[0].t
     const lastDataT = histActual[histActual.length - 1].t
     const esPrograma = puntosTeoricoActuales.length > 1
     const snap: Snapshot = {

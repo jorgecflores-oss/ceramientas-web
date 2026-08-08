@@ -103,11 +103,11 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
   const hayTeorica = puntosTeoricos && puntosTeoricos.length > 1
-  const modoSnapshot = !hayTeorica && !!snapshot && snapshot.puntosTeoricos.length > 1
+  const modoSnapshot = !hayTeorica && !!snapshot && snapshot.historialTemp.length > 0
 
   const puntosEf: PuntoCurva[] = modoSnapshot ? snapshot!.historialTemp : puntos
   const teoricoEf: PuntoCurva[] | undefined = modoSnapshot
-    ? snapshot!.puntosTeoricos
+    ? (snapshot!.puntosTeoricos.length > 1 ? snapshot!.puntosTeoricos : undefined)
     : (hayTeorica ? puntosTeoricos! : undefined)
   const xAhoraEf: number | undefined = modoSnapshot ? snapshot!.xAhoraFinal : xAhora
   const hayTeoricoEf = teoricoEf && teoricoEf.length > 1
