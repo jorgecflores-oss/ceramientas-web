@@ -61,10 +61,6 @@ export function ProgramasPage() {
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
 
-  // Edición inline de tempFinal
-  const [editTF, setEditTF] = useState<{ idx: number; valor: string } | null>(null)
-  const [guardandoTF, setGuardandoTF] = useState(false)
-
   // Confirmación borrar
   const [confirmarBorrar, setConfirmarBorrar] = useState<number | null>(null)
 
@@ -86,7 +82,7 @@ export function ProgramasPage() {
   }, [horno?.hornoId, setProgramas])
 
   function slotLibre(): number | null {
-    for (let i = 4; i <= 23; i++) {
+    for (let i = 4; i <= 43; i++) {
       if (!programas[i] || !tieneActivos(programas[i])) return i
     }
     return null
@@ -124,44 +120,17 @@ export function ProgramasPage() {
     }
   }
 
-  async function guardarTempFinal() {
-    if (!editTF || !horno?.hornoId) return
-    const valor = parseInt(editTF.valor, 10)
-    if (isNaN(valor) || valor < 100 || valor > 1300) {
-      alert('Temperatura inválida (100–1300°C)')
-      return
-    }
-    feedbackBoton()
-    setGuardandoTF(true)
-    try {
-      await postPrograma(horno.hornoId, editTF.idx, { tempFinal: valor })
-      actualizarLocal(editTF.idx, { tempFinal: valor })
-      setEditTF(null)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Error guardando temperatura'
-      const esBugMQTT = msg.toLowerCase().includes('rango') || msg.toLowerCase().includes('tempfinal')
-      if (esBugMQTT) {
-        alert('No se pudo guardar: el horno no está accesible por la red local.\n\nConfigurá la IP del horno en Ajustes → IP local, o conectate al hotspot del horno (red CERAMIENTAS_' + (horno?.hornoId?.slice(-4) ?? '????') + ').')
-      } else {
-        alert(msg)
-      }
-    } finally {
-      setGuardandoTF(false)
-    }
-  }
-
   async function borrarPrograma(idx: number) {
     if (!horno?.hornoId) return
     feedbackBoton()
     try {
       await deletePrograma(horno.hornoId, idx)
-      const nuevos = programas.filter((_, i) => i !== idx)
-      setProgramas(nuevos)
-      if (horno.hornoId) {
-        localStorage.setItem(STORAGE_KEYS.PROGRAMAS_CACHE(horno.hornoId), JSON.stringify(nuevos))
-      }
-    } catch {
-      alert('Error borrando programa')
+      const largo = programas[idx]?.pasos.length ?? 6
+      const vacio: Programa = { nombre: '', tipo: 0, tempFinal: 0, pasos: Array.from({ length: largo }, () => ({ velocidad: 0, temperatura: 0, tiempo: 0 })) }
+      actualizarLocal(idx, vacio)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error borrando programa'
+      alert(msg)
     } finally {
       setConfirmarBorrar(null)
     }
@@ -172,9 +141,9 @@ export function ProgramasPage() {
     const nombre = editPasos.nombre.trim()
     if (!nombre) { alert('El nombre no puede estar vacío'); return }
     const activos = editPasos.pasos.filter(pasoActivo)
-    const invalido = activos.find(p => p.temperatura < 30 || p.temperatura > 1300)
+    const invalido = activos.find(p => p.temperatura < 30 || p.temperatura > 1260)
     if (invalido) {
-      alert(`Temperatura inválida: ${invalido.temperatura}°C (rango 30–1300°C)`)
+      alert(`Temperatura inválida: ${invalido.temperatura}°C (rango 30–1260°C)`)
       return
     }
     feedbackBoton()
@@ -241,8 +210,14 @@ export function ProgramasPage() {
     if (!nuevoPrograma || !horno?.hornoId) return
     const nombre = nuevoPrograma.nombre.trim()
     if (!nombre) { alert('El nombre no puede estar vacío'); return }
+    const activosNuevo = nuevoPrograma.pasos.filter(pasoActivo)
+    const invalidoNuevo = activosNuevo.find(p => p.temperatura < 30 || p.temperatura > 1260)
+    if (invalidoNuevo) {
+      alert(`Temperatura inválida: ${invalidoNuevo.temperatura}°C (rango 30–1260°C)`)
+      return
+    }
     const slot = slotLibre()
-    if (slot === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
+    if (slot === null) { alert('No hay slots disponibles (máximo 40 programas)'); return }
     const pasosParaFirmware = normalizarSignosRampa(nuevoPrograma.pasos.map(p => ({ ...p, velocidad: Math.round(p.velocidad * 10) })))
     feedbackBoton()
     setGuardandoNuevo(true)
@@ -289,7 +264,7 @@ export function ProgramasPage() {
 
   const programasVisibles = programas
     .map((p, idx) => ({ ...p, idx }))
-    .filter(p => tieneActivos(p))
+    .filter(p => p.idx >= 4 && tieneActivos(p))
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white p-6 pb-24">
@@ -304,7 +279,7 @@ export function ProgramasPage() {
           </div>
           <button
             onClick={() => {
-              if (slotLibre() === null) { alert('No hay slots disponibles (máximo 20 programas personales)'); return }
+              if (slotLibre() === null) { alert('No hay slots disponibles (máximo 40 programas)'); return }
               setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 1, temperatura: 600, tiempo: 0 }], velTexto: ['1.0'] })
             }}
             className="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-full text-sm font-semibold transition"
@@ -323,86 +298,41 @@ export function ProgramasPage() {
 
         <div className="space-y-3">
           {programasVisibles.map(p => {
-            const esPredef = p.idx < 4
-            const badgeColor = esPredef
-              ? 'bg-orange-500/20 text-orange-400'
-              : 'bg-green-500/20 text-green-400'
-            const badgeLabel = esPredef ? 'Predefinido' : 'Personal'
             const tempFinalMostrar = p.tempFinal ?? p.pasos.filter(pasoActivo).slice(-1)[0]?.temperatura ?? 0
-            const editandoEsteTF = editTF?.idx === p.idx
 
             return (
               <div key={p.idx} className="bg-neutral-900 rounded-xl p-4 border border-neutral-800">
                 <div className="flex justify-between items-start mb-2">
                   <div className="flex-1 min-w-0 pr-2">
                     <h3 className="font-bold text-lg truncate">{p.nombre}</h3>
-                    <span className={`inline-block px-2 py-0.5 text-xs rounded-full mt-1 ${badgeColor}`}>
-                      {badgeLabel} · {duracionTotal(pasosEfectivos(p))}
+                    <span className="inline-block px-2 py-0.5 text-xs rounded-full mt-1 bg-green-500/20 text-green-400">
+                      {duracionTotal(pasosEfectivos(p))}
                     </span>
                   </div>
 
                   <div className="text-right shrink-0">
                     <p className="text-xs text-neutral-400 mb-1">Temp final</p>
-                    {esPredef ? (
-                      editandoEsteTF ? (
-                        <div className="flex items-center gap-1 justify-end">
-                          <input
-                            type="number"
-                            value={editTF.valor}
-                            onChange={e => setEditTF({ ...editTF, valor: e.target.value })}
-                            onKeyDown={e => { if (e.key === 'Enter') guardarTempFinal(); if (e.key === 'Escape') setEditTF(null) }}
-                            autoFocus
-                            className="w-20 px-2 py-1 bg-neutral-800 border border-orange-500 rounded text-white text-right text-sm focus:outline-none"
-                          />
-                          <span className="text-neutral-400 text-sm">°C</span>
-                          <button
-                            onClick={guardarTempFinal}
-                            disabled={guardandoTF}
-                            className="ml-1 px-2 py-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded text-xs font-bold"
-                          >
-                            {guardandoTF ? '...' : '✓'}
-                          </button>
-                          <button
-                            onClick={() => setEditTF(null)}
-                            disabled={guardandoTF}
-                            className="px-1 py-1 text-neutral-400 hover:text-white text-xs"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setEditTF({ idx: p.idx, valor: String(tempFinalMostrar) })}
-                          className="text-orange-500 font-bold text-lg hover:text-orange-400 transition"
-                        >
-                          {tempFinalMostrar}°C ✎
-                        </button>
-                      )
-                    ) : (
-                      <button
-                        onClick={() => setEditPasos({
-                        idx: p.idx,
-                        nombre: p.nombre,
-                        pasos: [...p.pasos],
-                        velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
-                      })}
-                        className="text-orange-500 font-bold text-lg hover:text-orange-400 transition"
-                      >
-                        {tempFinalMostrar}°C ✎
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setEditPasos({
+                      idx: p.idx,
+                      nombre: p.nombre,
+                      pasos: [...p.pasos],
+                      velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
+                    })}
+                      className="text-orange-500 font-bold text-lg hover:text-orange-400 transition"
+                    >
+                      {tempFinalMostrar}°C ✎
+                    </button>
 
-                    {!esPredef && (
-                      <div className="flex gap-2 mt-2 justify-end">
-                        <button
-                          onClick={() => setConfirmarBorrar(p.idx)}
-                          className="text-neutral-500 hover:text-red-400 transition p-1"
-                          title="Borrar programa"
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex gap-2 mt-2 justify-end">
+                      <button
+                        onClick={() => setConfirmarBorrar(p.idx)}
+                        className="text-neutral-500 hover:text-red-400 transition p-1"
+                        title="Borrar programa"
+                      >
+                        🗑
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -498,7 +428,7 @@ export function ProgramasPage() {
                     <input
                       type="number"
                       min="0"
-                      max="1300"
+                      max="1260"
                       value={paso.temperatura || ''}
                       placeholder="0"
                       onChange={e => editarNuevoPaso(i, 'temperatura', e.target.value)}
@@ -632,16 +562,6 @@ export function ProgramasPage() {
         </div>
       )}
 
-      {/* Bloqueo total mientras se confirma temp final (predefinidos) */}
-      {guardandoTF && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-6">
-          <div className="bg-neutral-900 rounded-2xl p-7 max-w-sm w-full border border-neutral-800 flex flex-col items-center text-center">
-            <div className="w-10 h-10 border-4 border-neutral-700 border-t-orange-500 rounded-full animate-spin mb-4" />
-            <p className="text-white font-bold text-lg mb-2">Guardando...</p>
-            <p className="text-neutral-400 text-sm">Confirmando el cambio con el horno. No cierres la app.</p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

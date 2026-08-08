@@ -37,6 +37,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
 
   const [wifiStep, setWifiStep] = useState<WifiStep>(null)
   const [wifiUrl, setWifiUrl] = useState('')
+  const [restaurando, setRestaurando] = useState(false)
 
   useEffect(() => {
     if (!horno?.hornoId) return
@@ -107,6 +108,20 @@ export function ConfigPage({ onAgregarHorno }: Props) {
       alert('Error guardando nombre')
     } finally {
       setGuardandoNombre(false)
+    }
+  }
+
+  async function restaurarPredefinidos() {
+    if (!horno?.hornoId) return
+    feedbackBoton()
+    setRestaurando(true)
+    try {
+      await postComando(horno.hornoId, 'restaurar_predef')
+      alert('Restaurado. Entrá a Programas para verlos.')
+    } catch {
+      alert('Error restaurando programas predefinidos')
+    } finally {
+      setRestaurando(false)
     }
   }
 
@@ -386,6 +401,19 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                   <p className="text-xs text-neutral-500 mt-0.5">
                     {versionFw ? `v${versionFw} instalada` : 'Instalar nueva versión OTA'}
                   </p>
+                </div>
+                <span className="text-neutral-600">›</span>
+              </button>
+
+              <button
+                onClick={restaurarPredefinidos}
+                disabled={restaurando}
+                className={`w-full flex items-center gap-4 py-3 border-b border-neutral-800 transition ${restaurando ? 'opacity-50 cursor-not-allowed' : 'hover:bg-neutral-800 rounded-xl'}`}
+              >
+                <span className="text-2xl">↺</span>
+                <div className="flex-1 text-left">
+                  <p className="text-white text-sm font-semibold">Restaurar predefinidos</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">Recupera los 4 programas originales, si los borraste</p>
                 </div>
                 <span className="text-neutral-600">›</span>
               </button>
