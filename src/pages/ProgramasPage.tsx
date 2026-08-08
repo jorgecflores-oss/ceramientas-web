@@ -347,18 +347,16 @@ export function ProgramasPage() {
                   </div>
 
                   <div className="text-right shrink-0">
-                    <div className="flex items-center gap-2 justify-end">
-                      <p className="text-xs text-neutral-400">
-                        Temp final <span className="text-orange-500 font-bold text-lg">{tempFinalMostrar}°C</span>
-                      </p>
-                      <button
-                        onClick={() => setConfirmarBorrar(p.idx)}
-                        className="text-neutral-500 hover:text-red-400 transition p-1"
-                        title="Borrar programa"
-                      >
-                        🗑
-                      </button>
-                    </div>
+                    <p className="text-xs text-neutral-400">
+                      Temp final <span className="text-orange-500 font-bold text-lg">{tempFinalMostrar}°C</span>
+                    </p>
+                    <button
+                      onClick={() => setConfirmarBorrar(p.idx)}
+                      className="text-neutral-500 hover:text-red-400 transition p-1 mt-1"
+                      title="Borrar programa"
+                    >
+                      🗑
+                    </button>
                   </div>
                 </div>
 
