@@ -188,7 +188,7 @@ export function ProgramasPage() {
   }
 
   function agregarNuevoPaso() {
-    if (!nuevoPrograma || nuevoPrograma.pasos.length >= 8) return
+    if (!nuevoPrograma || nuevoPrograma.pasos.length >= 6) return
     const ultimo = nuevoPrograma.pasos[nuevoPrograma.pasos.length - 1]
     setNuevoPrograma({
       ...nuevoPrograma,
@@ -262,6 +262,28 @@ export function ProgramasPage() {
     setEditPasos({ ...editPasos, pasos: nuevosPasos, velTexto: nuevosTextos })
   }
 
+  function agregarPaso() {
+    if (!editPasos) return
+    const activos = editPasos.pasos.filter(pasoActivo).length
+    if (activos >= 6) return
+    const anterior = activos > 0 ? editPasos.pasos[activos - 1] : null
+    const velDefault = anterior ? anterior.velocidad : 10
+    const nuevosPasos = editPasos.pasos.map((p, i) => i === activos ? { velocidad: velDefault, temperatura: 0, tiempo: 0 } : p)
+    const nuevosTextos = editPasos.velTexto.map((t, i) => i === activos ? (velDefault / 10).toFixed(1) : t)
+    setEditPasos({ ...editPasos, pasos: nuevosPasos, velTexto: nuevosTextos })
+  }
+
+  function quitarPaso(idx: number) {
+    if (!editPasos) return
+    const restantes = editPasos.pasos.filter((_, i) => i !== idx)
+    const restantesTexto = editPasos.velTexto.filter((_, i) => i !== idx)
+    while (restantes.length < 6) {
+      restantes.push({ velocidad: 0, temperatura: 0, tiempo: 0 })
+      restantesTexto.push('0.0')
+    }
+    setEditPasos({ ...editPasos, pasos: restantes, velTexto: restantesTexto })
+  }
+
   const programasVisibles = programas
     .map((p, idx) => ({ ...p, idx }))
     .filter(p => p.idx >= 4 && tieneActivos(p))
@@ -304,27 +326,31 @@ export function ProgramasPage() {
               <div key={p.idx} className="bg-neutral-900 rounded-xl p-4 border border-neutral-800">
                 <div className="flex justify-between items-start mb-2">
                   <div className="flex-1 min-w-0 pr-2">
-                    <h3 className="font-bold text-lg truncate">{p.nombre}</h3>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h3 className="font-bold text-lg truncate min-w-0">{p.nombre}</h3>
+                      <button
+                        onClick={() => setEditPasos({
+                        idx: p.idx,
+                        nombre: p.nombre,
+                        pasos: [...p.pasos],
+                        velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
+                      })}
+                        className="text-orange-500 hover:text-orange-400 transition shrink-0"
+                        title="Editar programa"
+                      >
+                        ✎
+                      </button>
+                    </div>
                     <span className="inline-block px-2 py-0.5 text-xs rounded-full mt-1 bg-green-500/20 text-green-400">
                       {duracionTotal(pasosEfectivos(p))}
                     </span>
                   </div>
 
                   <div className="text-right shrink-0">
-                    <p className="text-xs text-neutral-400 mb-1">Temp final</p>
-                    <button
-                      onClick={() => setEditPasos({
-                      idx: p.idx,
-                      nombre: p.nombre,
-                      pasos: [...p.pasos],
-                      velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
-                    })}
-                      className="text-orange-500 font-bold text-lg hover:text-orange-400 transition"
-                    >
-                      {tempFinalMostrar}°C ✎
-                    </button>
-
-                    <div className="flex gap-2 mt-2 justify-end">
+                    <div className="flex items-center gap-2 justify-end">
+                      <p className="text-xs text-neutral-400">
+                        Temp final <span className="text-orange-500 font-bold text-lg">{tempFinalMostrar}°C</span>
+                      </p>
                       <button
                         onClick={() => setConfirmarBorrar(p.idx)}
                         className="text-neutral-500 hover:text-red-400 transition p-1"
@@ -453,7 +479,7 @@ export function ProgramasPage() {
                 ))}
               </div>
 
-              {nuevoPrograma.pasos.length < 8 && (
+              {nuevoPrograma.pasos.length < 6 && (
                 <button
                   onClick={agregarNuevoPaso}
                   className="mt-3 w-full py-1.5 border border-dashed border-neutral-700 hover:border-neutral-500 rounded-lg text-neutral-500 hover:text-neutral-300 text-sm transition"
@@ -501,45 +527,60 @@ export function ProgramasPage() {
             </div>
 
             <div className="space-y-3 mb-5">
-              {/* Encabezados */}
-              <div className="grid grid-cols-3 gap-2 text-xs text-neutral-500 uppercase tracking-wider px-1">
-                <span>Vel °C/min</span>
-                <span>Temp °C</span>
-                <span>Tiempo min</span>
+              <div className="flex gap-2 text-xs text-neutral-500 uppercase tracking-wider mb-2 px-1">
+                <span className="w-6 shrink-0"></span>
+                <span className="flex-1">Vel °C/min</span>
+                <span className="flex-1">Temp °C</span>
+                <span className="flex-1">Tiempo min</span>
+                <span className="w-5 shrink-0"></span>
               </div>
 
               {editPasos.pasos.map((paso, origIdx) => {
                 if (!pasoActivo(paso)) return null
                 const numVisible = editPasos.pasos.slice(0, origIdx).filter(pasoActivo).length + 1
+                const totalActivos = editPasos.pasos.filter(pasoActivo).length
                 return (
-                  <div key={origIdx} className="grid grid-cols-3 gap-2 items-center">
-                    <div className="flex items-center gap-1">
-                      <span className="text-orange-500 text-xs font-bold w-5">P{numVisible}</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={editPasos.velTexto[origIdx]}
-                        onChange={e => editarVelocidadTexto(origIdx, e.target.value)}
-                        className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
-                      />
-                    </div>
+                  <div key={origIdx} className="flex items-center gap-2">
+                    <span className="text-orange-500 text-xs font-bold w-6 shrink-0">P{numVisible}</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={editPasos.velTexto[origIdx]}
+                      onChange={e => editarVelocidadTexto(origIdx, e.target.value)}
+                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                    />
                     <input
                       type="number"
                       value={paso.temperatura || ''}
                       placeholder="0"
                       onChange={e => editarPaso(origIdx, 'temperatura', e.target.value)}
-                      className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
                     <input
                       type="number"
                       value={paso.tiempo || ''}
                       placeholder="0"
                       onChange={e => editarPaso(origIdx, 'tiempo', e.target.value)}
-                      className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
+                    <button
+                      onClick={() => quitarPaso(origIdx)}
+                      disabled={totalActivos <= 1}
+                      className="w-5 shrink-0 text-neutral-500 hover:text-red-400 disabled:opacity-30 transition text-sm"
+                    >
+                      ✕
+                    </button>
                   </div>
                 )
               })}
+              {editPasos.pasos.filter(pasoActivo).length < 6 && (
+                <button
+                  onClick={agregarPaso}
+                  className="mt-3 w-full py-1.5 border border-dashed border-neutral-700 hover:border-neutral-500 rounded-lg text-neutral-500 hover:text-neutral-300 text-sm transition"
+                >
+                  + Agregar paso
+                </button>
+              )}
             </div>
 
             <div className="flex gap-2">

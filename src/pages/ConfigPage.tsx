@@ -116,10 +116,14 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     feedbackBoton()
     setRestaurando(true)
     try {
-      await postComando(horno.hornoId, 'restaurar_predef')
+      const ok = publicarComando(horno.hornoId, 'restaurar_predef')
+      if (!ok) {
+        await postComando(horno.hornoId, 'restaurar_predef')
+      }
       alert('Restaurado. Entrá a Programas para verlos.')
-    } catch {
-      alert('Error restaurando programas predefinidos')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error restaurando programas predefinidos'
+      alert(msg)
     } finally {
       setRestaurando(false)
     }
