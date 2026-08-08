@@ -3,6 +3,33 @@ import type { EstadoMQTT, Horno, Programa, PuntoCurva } from '../types/horno'
 import { STORAGE_KEYS } from '../utils/constants'
 import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 
+const CAPACIDAD_PROGRAMAS = 44
+
+function parseProgramasCacheValido(raw: string | null): Programa[] | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed) || parsed.length !== CAPACIDAD_PROGRAMAS) return null
+    if (!parsed.every(p => p && Array.isArray(p.pasos))) return null
+    return parsed as Programa[]
+  } catch {
+    return null
+  }
+}
+
+function parseSnapshotValido(raw: string | null): Snapshot | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    if (!Array.isArray(parsed.puntosTeoricos) || !Array.isArray(parsed.historialTemp)) return null
+    if (typeof parsed.tInicio !== 'number') return null
+    return parsed as Snapshot
+  } catch {
+    return null
+  }
+}
+
 interface AnclaStorage {
   timestampInicio: number
   tempInicio: number
@@ -592,14 +619,11 @@ export const useHornoStore = create<HornoState>((set, get) => ({
           if (ymaxRaw) ultimosYMax[id] = Number(ymaxRaw)
 
           const snapRaw = localStorage.getItem(STORAGE_KEYS.SNAPSHOT(id))
-          if (snapRaw) {
-            try { snapshots[id] = JSON.parse(snapRaw) as Snapshot } catch {}
-          }
+          const snapValido = parseSnapshotValido(snapRaw)
+          if (snapValido) snapshots[id] = snapValido
 
-          const progRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
-          if (progRaw) {
-            try { programasCache[id] = JSON.parse(progRaw) as Programa[] } catch {}
-          }
+          const progValido = parseProgramasCacheValido(localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id)))
+          if (progValido) programasCache[id] = progValido
 
           const curvaRaw = localStorage.getItem(STORAGE_KEYS.CURVA(id))
           if (curvaRaw) {
@@ -672,14 +696,11 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     if (ymaxRaw) ultimosYMax[id] = Number(ymaxRaw)
 
     const snapRaw = localStorage.getItem(STORAGE_KEYS.SNAPSHOT(id))
-    if (snapRaw) {
-      try { snapshots[id] = JSON.parse(snapRaw) as Snapshot } catch {}
-    }
+    const snapValido = parseSnapshotValido(snapRaw)
+    if (snapValido) snapshots[id] = snapValido
 
-    const progRaw = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id))
-    if (progRaw) {
-      try { programasCache[id] = JSON.parse(progRaw) as Programa[] } catch {}
-    }
+    const progValido = parseProgramasCacheValido(localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(id)))
+    if (progValido) programasCache[id] = progValido
 
     const curvaRaw = localStorage.getItem(STORAGE_KEYS.CURVA(id))
     if (curvaRaw) {
