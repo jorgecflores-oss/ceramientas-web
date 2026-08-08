@@ -313,6 +313,8 @@ export async function refreshIPCache(hornoId: string): Promise<void> {
   }
 }
 
+const CAPACIDAD_ACTUAL = 44
+
 export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
   try {
     const programas = await getProgramas(hornoId)
@@ -320,7 +322,12 @@ export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
     return programas
   } catch (e) {
     const cached = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId))
-    if (cached) return JSON.parse(cached) as Programa[]
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as Programa[]
+        if (Array.isArray(parsed) && parsed.length === CAPACIDAD_ACTUAL) return parsed
+      } catch {}
+    }
     throw e
   }
 }
