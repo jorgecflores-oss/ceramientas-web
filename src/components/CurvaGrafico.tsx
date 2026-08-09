@@ -374,7 +374,11 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
   const xp = (t: number) => PAD_LEFT + ((t - tMin) / (tMax - tMin)) * plotW
   const yp = (temp: number) => PAD_TOP + (1 - (temp - yMin) / (yMax - yMin)) * plotH
 
-  const tAhora = xAhoraEf !== undefined ? t0 + xAhoraEf * 60000 : undefined
+  const ultimoPuntoT = puntosEfFilt.length > 0 ? puntosEfFilt[puntosEfFilt.length - 1].t : undefined
+  const tAhoraBase = xAhoraEf !== undefined ? t0 + xAhoraEf * 60000 : undefined
+  const tAhora = tAhoraBase !== undefined && ultimoPuntoT !== undefined
+    ? Math.max(tAhoraBase, ultimoPuntoT)
+    : (tAhoraBase ?? ultimoPuntoT)
   const xNow = tAhora !== undefined
     ? (() => { const x = xp(tAhora); return x >= PAD_LEFT && x <= PAD_LEFT + plotW ? x : null })()
     : null
