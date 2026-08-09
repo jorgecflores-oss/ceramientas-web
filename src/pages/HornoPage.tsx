@@ -354,7 +354,7 @@ export function HornoPage() {
     const actualActivo   = esProcesoActivo(estadoActual)
     const prevEraActivo  = esProcesoActivo(prev)
     const actualPrograma = esProgramaActivo(estadoActual)
-    const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado'
+    const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado' || estadoActual === 'detenido_manualmente'
 
     const iniciarSesionDirecta = () => {
       resetHistorial()
