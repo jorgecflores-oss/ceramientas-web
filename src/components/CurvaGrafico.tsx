@@ -13,6 +13,10 @@ const MIN_ZOOM_MS = 2 * 60 * 1000
 const MIN_ZOOM_DEG = 20
 const UMBRAL_PAN_PX = 6
 
+interface SafariGestureEvent extends Event {
+  scale: number
+}
+
 function interpolarTemp(puntos: PuntoCurva[], t: number): number {
   if (puntos.length === 0) return 0
   if (t <= puntos[0].t) return puntos[0].temp
@@ -168,6 +172,10 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     let xPanInicial = 0
     let yPanInicial = 0
     let vistaAlIniciarPan: Vista = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
+    let touchPinchActivo = false
+    let mouseX = 0
+    let mouseY = 0
+    let vistaAlIniciarGesture: Vista = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
 
     const distanciaEntreDedos = (t: TouchList) =>
       Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
@@ -205,6 +213,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       if (e.touches.length === 2) {
         modo = 'pinch'
         distanciaInicial = distanciaEntreDedos(e.touches)
+        touchPinchActivo = true
         vistaAlInicio = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
         e.preventDefault()
       } else if (e.touches.length === 1) {
@@ -254,6 +263,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length === 0) {
         modo = null
+        touchPinchActivo = false
       } else if (e.touches.length === 1) {
         modo = 'pan-pendiente'
         xPanInicial = e.touches[0].clientX
@@ -272,11 +282,42 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       aplicarZoom(centro.t, centro.y, factor, base)
     }
 
+    const onMouseMove = (e: MouseEvent) => {
+      mouseX = e.clientX
+      mouseY = e.clientY
+    }
+
+    const onGestureStart = (e: SafariGestureEvent) => {
+      if (touchPinchActivo) return
+      if (e.cancelable !== false) e.preventDefault()
+      vistaAlIniciarGesture = { tIni: tMinRef.current, tFin: tMaxRef.current, yIni: yMinRef.current, yFin: yMaxRef.current }
+    }
+
+    const onGestureChange = (e: SafariGestureEvent) => {
+      if (touchPinchActivo) return
+      if (e.cancelable !== false) e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const cx = mouseX || rect.left + rect.width / 2
+      const cy = mouseY || rect.top + rect.height / 2
+      const factor = 1 / e.scale
+      const centro = centroDesdeXY(cx, cy, rect, vistaAlIniciarGesture)
+      aplicarZoom(centro.t, centro.y, factor, vistaAlIniciarGesture)
+    }
+
+    const onGestureEnd = (e: SafariGestureEvent) => {
+      if (touchPinchActivo) return
+      if (e.cancelable !== false) e.preventDefault()
+    }
+
     el.addEventListener('touchstart', onTouchStart, { passive: false })
     el.addEventListener('touchmove', onTouchMove, { passive: false })
     el.addEventListener('touchend', onTouchEnd)
     el.addEventListener('touchcancel', onTouchEnd)
     el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('mousemove', onMouseMove)
+    el.addEventListener('gesturestart', onGestureStart as EventListener, { passive: false })
+    el.addEventListener('gesturechange', onGestureChange as EventListener, { passive: false })
+    el.addEventListener('gestureend', onGestureEnd as EventListener)
 
     return () => {
       el.removeEventListener('touchstart', onTouchStart)
@@ -284,6 +325,10 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
       el.removeEventListener('touchend', onTouchEnd)
       el.removeEventListener('touchcancel', onTouchEnd)
       el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('mousemove', onMouseMove)
+      el.removeEventListener('gesturestart', onGestureStart as EventListener)
+      el.removeEventListener('gesturechange', onGestureChange as EventListener)
+      el.removeEventListener('gestureend', onGestureEnd as EventListener)
     }
   }, [])
 
@@ -352,14 +397,7 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     })
   }
 
-  if (puntosEfFilt.length === 0 && !hayTeoricoEf) {
-    return (
-      <div className="flex items-center justify-center text-neutral-500 text-sm" style={{ height: SVG_H }}>
-        Sin datos aún
-      </div>
-    )
-  }
-
+  const sinDatos = puntosEfFilt.length === 0 && !hayTeoricoEf
   const teoNodes = hayTeoricoEf ? teoricoEf! : []
   const clipId = `plot-${uid}`
 
@@ -388,120 +426,128 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
         style={{ height: SVG_H, touchAction: 'none' }}
         onClick={handleClick}
       >
-        {vista && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setVista(null) }}
-            className="absolute top-1 right-1 z-10 text-[10px] px-2 py-1 rounded bg-neutral-800/90 border border-neutral-700 text-neutral-300"
-          >
-            ↺ Ver todo
-          </button>
-        )}
-        <svg width={svgW} height={SVG_H} style={{ display: 'block' }}>
-          <defs>
-            <clipPath id={clipId}>
-              <rect x={PAD_LEFT} y={PAD_TOP} width={plotW} height={plotH} />
-            </clipPath>
-          </defs>
-
-          {teoNodes.map((node, i) => {
-            const x = xp(node.t)
-            if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
-            return (
-              <line key={`vg${i}`}
-                x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + plotH}
-                stroke="#888888" strokeWidth={1} opacity={0.25}
-              />
-            )
-          })}
-
-          {!vista && (() => {
-            const seen: number[] = []
-            return teoNodes.map((node, i) => {
-              const x = xp(node.t)
-              if (x < PAD_LEFT || x > PAD_LEFT + plotW) return null
-              if (seen.some(sx => Math.abs(sx - x) < 32)) return null
-              seen.push(x)
-              return (
-                <text key={`xl${i}`} x={x} y={PAD_TOP + plotH + 15}
-                  fill="#888888" fontSize={8} textAnchor="middle" opacity={0.8}>
-                  {formatHoraRel(node.t - t0)}
-                </text>
-              )
-            })
-          })()}
-
-          {vista && xTicks.map((t, i) => {
-            const x = xp(t)
-            if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
-            return (
-              <g key={`xt${i}`}>
-                <line x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + plotH}
-                  stroke="#888888" strokeWidth={1} opacity={0.1} />
-                <text x={x} y={PAD_TOP + plotH + 15}
-                  fill="#888888" fontSize={8} textAnchor="middle" opacity={0.8}>
-                  {formatHoraRel(t - t0)}
-                </text>
-              </g>
-            )
-          })}
-
-          {yTicks.map((temp, i) => {
-            const y = yp(temp)
-            if (y < PAD_TOP - 2 || y > PAD_TOP + plotH + 2) return null
-            return (
-              <g key={`yt${i}`}>
-                <line x1={PAD_LEFT} y1={y} x2={PAD_LEFT + plotW} y2={y}
-                  stroke="#888888" strokeWidth={1} opacity={0.12} />
-                <text x={PAD_LEFT - 5} y={y + 4} fill="#888888" fontSize={8} textAnchor="end" opacity={0.8}>
-                  {temp}°
-                </text>
-              </g>
-            )
-          })}
-
-          {teoPath && (
-            <path d={teoPath} stroke="#64B5F6" strokeWidth={1.5} strokeDasharray="5,4"
-              fill="none" clipPath={`url(#${clipId})`} />
-          )}
-
-          {teoNodes.map((node, i) => {
-            const x = xp(node.t)
-            const y = yp(node.temp)
-            if (x < PAD_LEFT - 6 || x > PAD_LEFT + plotW + 6) return null
-            if (y < PAD_TOP - 6 || y > PAD_TOP + plotH + 6) return null
-            return (
-              <circle key={`tc${i}`} cx={x} cy={y} r={3}
-                stroke="#64B5F6" strokeWidth={1} fill="#1a1a1a" />
-            )
-          })}
-
-          {realPath && (
-            <path d={realPath} stroke="#FF6B35" strokeWidth={2}
-              fill="none" clipPath={`url(#${clipId})`} />
-          )}
-
-          {xNow !== null && (
-            <line x1={xNow} y1={PAD_TOP} x2={xNow} y2={PAD_TOP + plotH}
-              stroke="#4CAF50" strokeWidth={1.5} opacity={0.65} />
-          )}
-        </svg>
-
-        {tooltip && (
-          <div
-            className="absolute top-8 bg-neutral-800/95 border border-neutral-700 rounded-lg px-3 py-2 text-xs pointer-events-none"
-            style={{ left: xNow !== null ? Math.max(PAD_LEFT, Math.min(svgW - 130, xNow - 55)) : PAD_LEFT + 10 }}
-          >
-            <div className="text-neutral-500 mb-1 font-bold tracking-wider">{formatHoraRel(tooltip.relMs)}</div>
-            <div className="text-orange-400">Real: {tooltip.real}°C</div>
-            {tooltip.teo !== null && (
-              <>
-                <div className="text-blue-300">Teórica: {tooltip.teo}°C</div>
-                <div className={`font-semibold ${tooltip.real - tooltip.teo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  Δ {tooltip.real - tooltip.teo >= 0 ? '+' : ''}{tooltip.real - tooltip.teo}°C
-                </div>
-              </>
-            )}
+        {sinDatos ? (
+          <div className="flex items-center justify-center text-neutral-500 text-sm" style={{ height: SVG_H }}>
+            Sin datos aún
           </div>
+        ) : (
+          <>
+            {vista && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setVista(null) }}
+                className="absolute top-1 right-1 z-10 text-[10px] px-2 py-1 rounded bg-neutral-800/90 border border-neutral-700 text-neutral-300"
+              >
+                ↺ Ver todo
+              </button>
+            )}
+            <svg width={svgW} height={SVG_H} style={{ display: 'block' }}>
+              <defs>
+                <clipPath id={clipId}>
+                  <rect x={PAD_LEFT} y={PAD_TOP} width={plotW} height={plotH} />
+                </clipPath>
+              </defs>
+
+              {teoNodes.map((node, i) => {
+                const x = xp(node.t)
+                if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
+                return (
+                  <line key={`vg${i}`}
+                    x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + plotH}
+                    stroke="#888888" strokeWidth={1} opacity={0.25}
+                  />
+                )
+              })}
+
+              {!vista && (() => {
+                const seen: number[] = []
+                return teoNodes.map((node, i) => {
+                  const x = xp(node.t)
+                  if (x < PAD_LEFT || x > PAD_LEFT + plotW) return null
+                  if (seen.some(sx => Math.abs(sx - x) < 32)) return null
+                  seen.push(x)
+                  return (
+                    <text key={`xl${i}`} x={x} y={PAD_TOP + plotH + 15}
+                      fill="#888888" fontSize={8} textAnchor="middle" opacity={0.8}>
+                      {formatHoraRel(node.t - t0)}
+                    </text>
+                  )
+                })
+              })()}
+
+              {vista && xTicks.map((t, i) => {
+                const x = xp(t)
+                if (x < PAD_LEFT - 1 || x > PAD_LEFT + plotW + 1) return null
+                return (
+                  <g key={`xt${i}`}>
+                    <line x1={x} y1={PAD_TOP} x2={x} y2={PAD_TOP + plotH}
+                      stroke="#888888" strokeWidth={1} opacity={0.1} />
+                    <text x={x} y={PAD_TOP + plotH + 15}
+                      fill="#888888" fontSize={8} textAnchor="middle" opacity={0.8}>
+                      {formatHoraRel(t - t0)}
+                    </text>
+                  </g>
+                )
+              })}
+
+              {yTicks.map((temp, i) => {
+                const y = yp(temp)
+                if (y < PAD_TOP - 2 || y > PAD_TOP + plotH + 2) return null
+                return (
+                  <g key={`yt${i}`}>
+                    <line x1={PAD_LEFT} y1={y} x2={PAD_LEFT + plotW} y2={y}
+                      stroke="#888888" strokeWidth={1} opacity={0.12} />
+                    <text x={PAD_LEFT - 5} y={y + 4} fill="#888888" fontSize={8} textAnchor="end" opacity={0.8}>
+                      {temp}°
+                    </text>
+                  </g>
+                )
+              })}
+
+              {teoPath && (
+                <path d={teoPath} stroke="#64B5F6" strokeWidth={1.5} strokeDasharray="5,4"
+                  fill="none" clipPath={`url(#${clipId})`} />
+              )}
+
+              {teoNodes.map((node, i) => {
+                const x = xp(node.t)
+                const y = yp(node.temp)
+                if (x < PAD_LEFT - 6 || x > PAD_LEFT + plotW + 6) return null
+                if (y < PAD_TOP - 6 || y > PAD_TOP + plotH + 6) return null
+                return (
+                  <circle key={`tc${i}`} cx={x} cy={y} r={3}
+                    stroke="#64B5F6" strokeWidth={1} fill="#1a1a1a" />
+                )
+              })}
+
+              {realPath && (
+                <path d={realPath} stroke="#FF6B35" strokeWidth={2}
+                  fill="none" clipPath={`url(#${clipId})`} />
+              )}
+
+              {xNow !== null && (
+                <line x1={xNow} y1={PAD_TOP} x2={xNow} y2={PAD_TOP + plotH}
+                  stroke="#4CAF50" strokeWidth={1.5} opacity={0.65} />
+              )}
+            </svg>
+
+            {tooltip && (
+              <div
+                className="absolute top-8 bg-neutral-800/95 border border-neutral-700 rounded-lg px-3 py-2 text-xs pointer-events-none"
+                style={{ left: xNow !== null ? Math.max(PAD_LEFT, Math.min(svgW - 130, xNow - 55)) : PAD_LEFT + 10 }}
+              >
+                <div className="text-neutral-500 mb-1 font-bold tracking-wider">{formatHoraRel(tooltip.relMs)}</div>
+                <div className="text-orange-400">Real: {tooltip.real}°C</div>
+                {tooltip.teo !== null && (
+                  <>
+                    <div className="text-blue-300">Teórica: {tooltip.teo}°C</div>
+                    <div className={`font-semibold ${tooltip.real - tooltip.teo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      Δ {tooltip.real - tooltip.teo >= 0 ? '+' : ''}{tooltip.real - tooltip.teo}°C
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
