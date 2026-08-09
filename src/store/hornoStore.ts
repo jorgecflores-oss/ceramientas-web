@@ -469,10 +469,18 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const tIniciosMap = { ...s.tIniciosMap, [id]: tInicio }
     const tempIniciosMap = { ...s.tempIniciosMap, [id]: tempInicio }
     const ultimosYMax = { ...s.ultimosYMax, [id]: yMaxTeorico }
+
+    const histPrevio = s.historialTemps[id] ?? []
+    const historialTemps = histPrevio.length === 0
+      ? { ...s.historialTemps, [id]: [{ t: tInicio, temp: tempInicio }] }
+      : s.historialTemps
+    const historialActivo = historialTemps[id] ?? histPrevio
+
     set({
       programasActivos, puntosTeoricosMap, tIniciosMap, tempIniciosMap, ultimosYMax,
       programaActivo: programa, puntosTeoricos: puntos, tInicio, tempInicio,
       ultimoYMax: yMaxTeorico,
+      historialTemps, historialTemp: historialActivo,
     })
   },
 
@@ -507,10 +515,10 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     if (!id) return
     const puntosTeoricoActuales = s.puntosTeoricosMap[id] ?? []
     const histActual = s.historialTemps[id] ?? []
-    if (histActual.length === 0) return
-    const tInicioActual = s.tIniciosMap[id] ?? histActual[0].t
-    const lastDataT = histActual[histActual.length - 1].t
     const esPrograma = puntosTeoricoActuales.length > 1
+    if (histActual.length === 0 && !esPrograma) return
+    const tInicioActual = s.tIniciosMap[id] ?? histActual[0]?.t ?? Date.now()
+    const lastDataT = histActual.length > 0 ? histActual[histActual.length - 1].t : tInicioActual
     const snap: Snapshot = {
       modo: esPrograma ? 'programa' : 'directa',
       programa: esPrograma ? (s.programasActivos[id] ?? null) : null,
