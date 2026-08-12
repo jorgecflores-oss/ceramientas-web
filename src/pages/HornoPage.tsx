@@ -308,6 +308,8 @@ export function HornoPage() {
       resetHistorial()
       clearCurvaTeorica()
       useHornoStore.getState().limpiarSnapshot(hornoId)
+      const primerTempReal = await resincronizarCurvaReal(hornoId, tAncla)
+      if (primerTempReal !== null) tempAncla = primerTempReal
     }
 
     // Si el último ejecutado fue un programa custom (idx ≥ 4), buscarlo
