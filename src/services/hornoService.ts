@@ -21,6 +21,17 @@ export async function getInfo(ip: string): Promise<InfoHorno> {
   return res.json()
 }
 
+// Login modo AP: POST directo a IP, con X-Auth de la password derivada (única que puede andar recién reseteado)
+export async function postConfigAP(ip: string, pass: string, body: unknown) {
+  const res = await fetchTimeout(`http://${ip}/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Auth': pass },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
 export async function scanWifi(hornoId: string) {
   return (await hornoRequest(hornoId, 'wifi/scan', 'GET')).data
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { descubrirHornosMQTT } from '../services/mqttService'
-import { verificarHornoMQTT, getInfo, hornoRequest, consultarInfoMQTT } from '../services/hornoService'
+import { verificarHornoMQTT, getInfo, hornoRequest, consultarInfoMQTT, postConfigAP } from '../services/hornoService'
 import { feedbackBoton } from '../utils/feedback'
 import { AP_IP, STORAGE_KEYS } from '../utils/constants'
 import type { InfoHorno } from '../types/horno'
@@ -35,16 +35,29 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
     }
   }
 
-  function vincularDetectadoAP() {
+  async function vincularDetectadoAP() {
     if (!hornoDetectadoAP) return
     feedbackBoton()
-    const passDerivada = hornoDetectadoAP.hornoId.slice(-6).toLowerCase()
+    const hornoId = hornoDetectadoAP.hornoId
+    const passDerivada = hornoId.slice(-6).toLowerCase()
+    let passFinal = passDerivada
+    try {
+      const reclamo = await postConfigAP(AP_IP, passDerivada, { reclamar: true })
+      const data = reclamo as { nuevaPass?: string }
+      if (data.nuevaPass) {
+        passFinal = data.nuevaPass
+        localStorage.setItem(STORAGE_KEYS.PASS(hornoId), passFinal)
+      }
+    } catch {
+      // Ya reclamado con otra pass, o error de red — seguimos con la derivada
+      // como antes, no bloqueamos el flujo por esto.
+    }
     agregarHorno({
-      hornoId: hornoDetectadoAP.hornoId,
+      hornoId,
       nombre: hornoDetectadoAP.nombre,
       version: hornoDetectadoAP.version,
-    }, passDerivada)
-    setHornoActivo(hornoDetectadoAP.hornoId)
+    }, passFinal)
+    setHornoActivo(hornoId)
     onVinculadoSinInternet ? onVinculadoSinInternet() : onVolver?.()
   }
 
