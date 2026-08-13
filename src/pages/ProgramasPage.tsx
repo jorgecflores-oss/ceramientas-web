@@ -66,6 +66,7 @@ export function ProgramasPage() {
 
   // Modal edición pasos (solo programas custom idx >= 4)
   const [editPasos, setEditPasos] = useState<{ idx: number; nombre: string; pasos: Paso[]; velTexto: string[] } | null>(null)
+  const [ultimoPasoFocus, setUltimoPasoFocus] = useState<number | null>(null)
   const [guardandoPasos, setGuardandoPasos] = useState(false)
 
   // Modal nuevo programa
@@ -266,11 +267,22 @@ export function ProgramasPage() {
     if (!editPasos) return
     const activos = editPasos.pasos.filter(pasoActivo).length
     if (activos >= 6) return
-    const anterior = activos > 0 ? editPasos.pasos[activos - 1] : null
+    const insertAt = (ultimoPasoFocus !== null && ultimoPasoFocus < activos) ? ultimoPasoFocus + 1 : activos
+    const anterior = insertAt > 0 ? editPasos.pasos[insertAt - 1] : null
     const velDefault = anterior ? anterior.velocidad : 10
-    const nuevosPasos = editPasos.pasos.map((p, i) => i === activos ? { velocidad: velDefault, temperatura: 0, tiempo: 0 } : p)
-    const nuevosTextos = editPasos.velTexto.map((t, i) => i === activos ? (velDefault / 10).toFixed(1) : t)
+    const nuevoPaso: Paso = { velocidad: velDefault, temperatura: 0, tiempo: 0 }
+    const nuevoTexto = (velDefault / 10).toFixed(1)
+    const pasosActivos  = editPasos.pasos.slice(0, activos)
+    const textosActivos = editPasos.velTexto.slice(0, activos)
+    const pasosActivosNuevo  = [...pasosActivos.slice(0, insertAt), nuevoPaso, ...pasosActivos.slice(insertAt)]
+    const textosActivosNuevo = [...textosActivos.slice(0, insertAt), nuevoTexto, ...textosActivos.slice(insertAt)]
+    const faltantes = 6 - pasosActivosNuevo.length
+    const relleno: Paso[]        = Array.from({ length: faltantes }, () => ({ velocidad: 0, temperatura: 0, tiempo: 0 }))
+    const rellenoTexto: string[] = Array.from({ length: faltantes }, () => '0.0')
+    const nuevosPasos  = [...pasosActivosNuevo, ...relleno]
+    const nuevosTextos = [...textosActivosNuevo, ...rellenoTexto]
     setEditPasos({ ...editPasos, pasos: nuevosPasos, velTexto: nuevosTextos })
+    setUltimoPasoFocus(insertAt)
   }
 
   function quitarPaso(idx: number) {
@@ -329,12 +341,15 @@ export function ProgramasPage() {
                     <div className="flex items-center gap-2 min-w-0">
                       <h3 className="font-bold text-lg truncate min-w-0">{p.nombre}</h3>
                       <button
-                        onClick={() => setEditPasos({
-                        idx: p.idx,
-                        nombre: p.nombre,
-                        pasos: [...p.pasos],
-                        velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
-                      })}
+                        onClick={() => {
+                        setEditPasos({
+                          idx: p.idx,
+                          nombre: p.nombre,
+                          pasos: [...p.pasos],
+                          velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
+                        })
+                        setUltimoPasoFocus(null)
+                      }}
                         className="text-orange-500 hover:text-orange-400 transition shrink-0"
                         title="Editar programa"
                       >
@@ -545,6 +560,7 @@ export function ProgramasPage() {
                       inputMode="decimal"
                       value={editPasos.velTexto[origIdx]}
                       onChange={e => editarVelocidadTexto(origIdx, e.target.value)}
+                      onFocus={() => setUltimoPasoFocus(origIdx)}
                       className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
                     <input
@@ -552,6 +568,7 @@ export function ProgramasPage() {
                       value={paso.temperatura || ''}
                       placeholder="0"
                       onChange={e => editarPaso(origIdx, 'temperatura', e.target.value)}
+                      onFocus={() => setUltimoPasoFocus(origIdx)}
                       className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
                     <input
@@ -559,6 +576,7 @@ export function ProgramasPage() {
                       value={paso.tiempo || ''}
                       placeholder="0"
                       onChange={e => editarPaso(origIdx, 'tiempo', e.target.value)}
+                      onFocus={() => setUltimoPasoFocus(origIdx)}
                       className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
                     <button

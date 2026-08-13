@@ -402,8 +402,6 @@ export function HornoPage() {
         clearCurvaTeorica()
         useHornoStore.getState().flushHistorial()
       }
-    } else if (prev === null && actualInactivo) {
-      clearCurvaTeorica()
     }
 
     estadoPrevioRef.current = estadoActual
