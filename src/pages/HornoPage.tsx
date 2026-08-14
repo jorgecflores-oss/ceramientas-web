@@ -625,7 +625,7 @@ export function HornoPage() {
             La temperatura sube <span className="text-red-400 font-bold">más rápido de lo programado</span>.
           </p>
           {(estado?.temperatura ?? 0) > 0 && (
-            <p className="text-sm mb-2">
+            <p className="text-white text-sm mb-2">
               Temperatura actual:{' '}
               <span className="text-orange-400 font-bold">{Math.round(estado!.temperatura)}°C</span>
             </p>
