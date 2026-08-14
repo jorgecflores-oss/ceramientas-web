@@ -592,7 +592,7 @@ export function HornoPage() {
           <h2 className="text-xl font-bold text-white mb-2">⚡ Corte de luz — {horno.nombre}</h2>
           <p className="text-neutral-400 text-sm mb-1">Suministro reestablecido.</p>
           {(estado?.temperatura ?? 0) > 0 && (
-            <p className="text-sm mb-4">
+            <p className="text-white text-sm mb-4">
               Temperatura del horno:{' '}
               <span className="text-orange-400 font-bold">{Math.round(estado!.temperatura)}°C</span>
             </p>

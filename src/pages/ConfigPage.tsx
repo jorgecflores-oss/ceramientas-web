@@ -381,6 +381,27 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                 <span className="text-neutral-600">›</span>
               </button>
 
+              {horno && (
+                <div className="w-full flex items-center gap-4 py-3 border-b border-neutral-800">
+                  <span className="text-2xl">🔔</span>
+                  <div className="flex-1 text-left">
+                    <p className="text-white text-sm font-semibold">Notificaciones</p>
+                    <p className="text-xs text-neutral-500 mt-0.5 mb-2">Nombre del canal en la app ntfy</p>
+                    <div className="bg-neutral-800 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                      <p className="text-orange-400 font-mono text-xs break-all select-all">
+                        ceramientas-{horno.hornoId}
+                      </p>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(`ceramientas-${horno.hornoId}`)}
+                        className="shrink-0 text-xs text-neutral-300 bg-neutral-600 hover:bg-neutral-500 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                      >
+                        Copiar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={abrirConfigWifi}
                 disabled={wifiStep !== null}

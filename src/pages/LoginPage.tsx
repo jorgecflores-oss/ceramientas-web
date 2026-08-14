@@ -162,17 +162,45 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
           <div className="space-y-2">
             <p className="text-xs text-neutral-500 uppercase tracking-wider">Hornos guardados</p>
             {hornos.map(h => (
-              <button
+              <div
                 key={h.hornoId}
-                onClick={() => { feedbackBoton(); setHornoActivo(h.hornoId); onVolver?.() }}
-                className="w-full flex justify-between items-center px-4 py-3 bg-neutral-900 border border-neutral-800 hover:border-orange-500 rounded-lg transition active:scale-95 duration-75"
+                className="bg-neutral-900 border border-neutral-800 hover:border-orange-500 rounded-lg transition"
               >
-                <div className="text-left">
-                  <p className="text-white font-semibold">{h.nombre}</p>
-                  <p className="text-xs text-neutral-500">{h.hornoId.slice(-6)}</p>
+                <button
+                  onClick={() => { feedbackBoton(); setHornoActivo(h.hornoId); onVolver?.() }}
+                  className="w-full flex justify-between items-center px-4 py-3 active:scale-95 duration-75"
+                >
+                  <div className="text-left">
+                    <p className="text-white font-semibold">{h.nombre}</p>
+                    <p className="text-xs text-neutral-500">{h.hornoId.slice(-6)}</p>
+                  </div>
+                  <span className="text-orange-500">→</span>
+                </button>
+                <div className="px-4 pb-3 border-t border-neutral-800 pt-2 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-neutral-300 font-mono text-[11px] break-all select-all">
+                      {h.hornoId}
+                    </p>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(h.hornoId) }}
+                      className="shrink-0 text-xs text-neutral-300 bg-neutral-700 hover:bg-neutral-600 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                    >
+                      Copiar ID
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-orange-400 font-mono text-[11px] break-all select-all">
+                      ceramientas-{h.hornoId}
+                    </p>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`ceramientas-${h.hornoId}`) }}
+                      className="shrink-0 text-xs text-neutral-300 bg-neutral-700 hover:bg-neutral-600 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                    >
+                      Copiar
+                    </button>
+                  </div>
                 </div>
-                <span className="text-orange-500">→</span>
-              </button>
+              </div>
             ))}
           </div>
         )}
