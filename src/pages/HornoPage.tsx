@@ -402,6 +402,18 @@ export function HornoPage() {
         clearCurvaTeorica()
         useHornoStore.getState().flushHistorial()
       }
+    } else if (prev === null && actualInactivo) {
+      if (hornoId && !useHornoStore.getState().snapshots[hornoId]) {
+        const histoLocal = useHornoStore.getState().historialTemps[hornoId] ?? []
+        if (histoLocal.length > 0) {
+          clearCurvaTeorica()
+        } else {
+          getCurva(hornoId, 0)
+            .then(resp => useHornoStore.getState().aplicarCurvaFirmware(hornoId, resp))
+            .catch(e => console.error('[CURVA_RECUPERACION]', e))
+            .finally(() => clearCurvaTeorica())
+        }
+      }
     }
 
     estadoPrevioRef.current = estadoActual
