@@ -42,6 +42,7 @@ export interface EstadoMQTT {
   rampaLenta: boolean
   rampaRapida: boolean
   corteLuz: boolean
+  termocuplaAbierta: boolean
   estado: EstadoHorno
 }
 
@@ -105,6 +106,7 @@ export type TipoNotif =
   | 'corte_luz'
   | 'rampa_rapida'
   | 'rampa_lenta'
+  | 'termocupla'
   | 'etapa'
   | 'meseta'
   | 'fin'

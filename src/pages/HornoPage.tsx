@@ -62,12 +62,14 @@ export function HornoPage() {
   const estadoPrevioRef      = useRef<string | null>(null)
   const corteLuzCooldownRef  = useRef(0)
   const rampaRapidaShownRef  = useRef(false)
+  const termocuplaShownRef   = useRef(false)
   const toastIdRef           = useRef(0)
 
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
   const [, setTick] = useState(0)
   const [modalCorteLuz, setModalCorteLuz]       = useState(false)
   const [modalRampaRapida, setModalRampaRapida] = useState(false)
+  const [modalTermocupla, setModalTermocupla]   = useState(false)
   const [modalNtfy, setModalNtfy]               = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; tipo: 'info' | 'warn' | 'error' }[]>([])
 
@@ -131,6 +133,7 @@ export function HornoPage() {
           rampaLenta: data.rl ?? data.rampaLenta ?? false,
           rampaRapida: data.rr ?? data.rampaRapida ?? false,
           corteLuz: data.cl ?? data.corteLuz ?? false,
+          termocuplaAbierta: data.tc ?? data.termocuplaAbierta ?? false,
           estado: data.e ?? data.estado ?? 'idle',
         })
       })
@@ -182,6 +185,14 @@ export function HornoPage() {
     setModalRampaRapida(true)
   }, [estado?.rampaRapida])
 
+  // Termocupla abierta detectada por campo tc del estado
+  useEffect(() => {
+    if (!estado?.termocuplaAbierta) { termocuplaShownRef.current = false; return }
+    if (termocuplaShownRef.current) return
+    termocuplaShownRef.current = true
+    setModalTermocupla(true)
+  }, [estado?.termocuplaAbierta])
+
   // Notificaciones tipadas del firmware via topic /notif
   useEffect(() => {
     if (!horno) return
@@ -195,6 +206,10 @@ export function HornoPage() {
         if (rampaRapidaShownRef.current) return
         rampaRapidaShownRef.current = true
         setModalRampaRapida(true)
+      } else if (notif.tipo === 'termocupla') {
+        if (termocuplaShownRef.current) return
+        termocuplaShownRef.current = true
+        setModalTermocupla(true)
       } else if (notif.tipo === 'etapa') {
         const msg = notif.msg?.replace(/(\d+)C$/, '$1°C') ?? 'Nueva etapa iniciada'
         mostrarToast(`${horno.nombre}: ${msg}`, 'info')
@@ -558,6 +573,18 @@ export function HornoPage() {
         </div>
       )}
 
+      {estado?.termocuplaAbierta && (
+        <div className="bg-orange-900/30 border border-orange-800 rounded-lg p-4 mb-4 flex items-center justify-between">
+          <p className="text-orange-400 font-semibold">🌡️ Termocupla abierta — pausado</p>
+          <button
+            onClick={() => { termocuplaShownRef.current = false; setModalTermocupla(true) }}
+            className="text-xs text-orange-400 border border-orange-800 rounded px-2 py-1 hover:bg-orange-900/50"
+          >
+            Ver opciones
+          </button>
+        </div>
+      )}
+
       {enProceso && (
         <div className="flex justify-center mb-4">
           <button
@@ -663,6 +690,39 @@ export function HornoPage() {
         </div>
       </div>
     )}
+
+    {/* Modal — Termocupla abierta */}
+    {modalTermocupla && (
+      <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div className="bg-neutral-900 border border-orange-800 rounded-2xl p-6 w-full max-w-sm">
+          <h2 className="text-xl font-bold text-orange-400 mb-2">🌡️ Termocupla abierta — {horno.nombre}</h2>
+          <p className="text-neutral-400 text-sm mb-2">
+            Se perdió la lectura de temperatura. El horno <span className="text-orange-400 font-bold">cortó la resistencia automáticamente</span> y quedó en pausa.
+          </p>
+          <p className="text-neutral-300 text-sm mb-4">
+            Si tenés termocupla de repuesto, podés cambiarla desde afuera sin riesgo eléctrico — la horneada retoma sola al detectar una lectura válida cercana a la anterior.
+          </p>
+          <p className="text-neutral-300 text-sm mb-6">
+            Si no tenés repuesto a mano, detené la horneada.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { feedbackBoton(); setModalTermocupla(false); enviarCmd('detener') }}
+              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 active:scale-95 transition-all duration-75"
+            >
+              Detener horneada
+            </button>
+            <button
+              onClick={() => { feedbackBoton(); setModalTermocupla(false) }}
+              className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
+            >
+              Esperar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
     {modalNtfy && horno && (
       <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
         <div className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 max-w-sm w-full">
