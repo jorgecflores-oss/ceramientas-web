@@ -713,7 +713,7 @@ export function HornoPage() {
               Detener horneada
             </button>
             <button
-              onClick={() => { feedbackBoton(); setModalTermocupla(false) }}
+              onClick={() => { feedbackBoton(); setModalTermocupla(false); enviarCmd('cancelar_alarma') }}
               className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
             >
               Esperar

@@ -86,7 +86,9 @@ Fase 2: interacción completa (en curso)
 - [x] Editar tempFinal de programas (inline, todos los slots)
 - [x] Editar pasos de programas custom (idx ≥ 4, modal)
 - [x] Borrar programas custom (idx ≥ 4, con confirmación)
-- [x] Crear programas nuevos (modal nombre + pasos, slot libre idx 4-23)
+- [x] Crear programas nuevos (modal nombre + pasos, slot libre idx 4-43, 40 slots)
+- [x] Restaurar predefinidos (ConfigPage, fallback MQTT→HTTP, comando firmware)
+- [x] Agregar/quitar pasos en modal editar (inserta en posición de foco)
 - [x] Recuperación corte luz (UI) — banner + modal continuar/detener, cooldown 30s
 - [x] Multi-horno — SelectorHorno + store completo; login page acepta onVolver; ConfigPage con botón "Agregar horno"
 
@@ -150,6 +152,25 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-08-05): v3.4.13 — ancla curva teórica usa primer punto real del firmware al reconectar mid-process (elimina fallback 20°C hardcodeado)
 - Fix (2026-08-06): v3.4.13 — ConfigPage fetch `version.json` con `cache: 'no-store'` para evitar falso "sin update"
 - Fix (2026-08-06): v3.4.13 — `CURVA_META` persiste `t0` para restaurar alineación de Conexión Directa al recargar
+- Fix (2026-08-06): v3.4.13 — resync curva real sin depender de ancla teórica; si ancla teórica ya existe la reutiliza y sale temprano tras `reemplazarCurvaCompleta`; sin ancla, usa horas/minutos del estado
+- Fix (2026-08-06): v3.4.13 — `resincronizarCurvaReal()` extraída como función reutilizable (loop paginado + `reemplazarCurvaCompleta`); reconexión Conexión Directa también ejecuta resync
+- Feat (2026-08-08): capacidad 44 programas — ProgramasPage elimina distinción predefinido/personal; editar+borrar en todos los slots; 40 slots custom (idx 4-43); validación temp 30-1260°C; ConfigPage: botón "Restaurar predefinidos" dispara comando `restaurar_predef` al firmware
+- Feat (2026-08-08): agregar/quitar pasos en modal editar — `agregarPaso()`/`quitarPaso()` en modal editar; inserción en posición de foco; tope 6 pasos consistente con firmware; `restaurarPredefinidos()` en ConfigPage con fallback MQTT→HTTP
+- Fix (2026-08-08): `fetchProgramasOnce` descarta caché con largo ≠ 44 para evitar datos obsoletos post-migración
+- Fix (2026-08-08): Service Worker — `skipWaiting` + `clientsClaim` para completar ciclo de auto-update sin intervención del usuario
+- Fix (2026-08-08): validar estructura de `programasCache` y snapshots al hidratar desde localStorage; descarta silenciosamente datos obsoletos cuya forma no coincida con capacidad actual
+- Fix (2026-08-08): `guardarSnapshot` deriva `tInicio` del primer punto real del historial cuando `tIniciosMap` está vacío (sesión Conexión Directa sin curva teórica), en lugar de abortar
+- Feat (2026-08-08): `setCurvaTeorica` siembra punto de origen en `historialTemps` al arrancar (solo si estaba vacío); `guardarSnapshot` guarda aunque no haya puntos reales; CurvaGrafico: Conexión Directa muestra curva real sola sin overlay teórico
+- Fix (2026-08-08): CurvaGrafico — `containerRef` queda enganchado al div principal aunque el primer render no tenga datos (elimina early return que impedía el ref); soporte `gesturestart/gesturechange/gestureend` para pinch-to-zoom en Safari/Mac trackpad con guard `touchPinchActivo`
+- Fix (2026-08-08): CurvaGrafico — clamp de `tAhora`: si el ancla teórica adelanta la línea "ahora" respecto a los datos reales acumulados, se fuerza al máximo entre ambos timestamps
+- Fix (2026-08-09): `guardarSnapshot` en todos los estados terminales — agrega `alarma_exceso`, `alarma_critica`, `emergencia`, `error` y `detenido_manualmente` a `actualInactivo` para que el fetch final de curva corra en cualquier transición desde proceso activo
+- Fix (2026-08-12): curva teórica arranca desde primer punto real también en horneada nueva (no solo en reconexión)
+- Fix (2026-08-13): HornoPage elimina rama que llamaba `clearCurvaTeorica()` cuando `prev===null` y horno ya inactivo — evitaba que el snapshot cargado de localStorage quedara pisado al reconectar
+- Fix (2026-08-13): ProgramasPage — `agregarPaso()` inserta después del paso con foco activo (`ultimoPasoFocus` con `onFocus` en los 3 inputs de cada fila); reset al abrir modal
+- Feat (2026-08-13): `vincularDetectadoAP` reclama password al conectar por AP — `postConfigAP()` en hornoService envía POST /config con X-Auth derivada; si el firmware devuelve `nuevaPass` la persiste antes de `agregarHorno`
+- Feat (2026-08-13): acceso permanente al topic ntfy — ConfigPage muestra topic con botón Copiar; LoginPage: cada horno guardado expande ID completo + topic ntfy, ambos copiables
+- Fix (2026-08-14): texto "Temperatura actual:" en modal rampa rápida pasa a `text-white` (igual fix que modal corte de luz del 2026-08-13)
+- Feat (2026-08-14): recuperar snapshot al abrir con horno inactivo — HornoPage intenta cargar snapshot desde caché local; si no existe, hace fetch de la curva completa al firmware
 
 ## Notas arquitectura relevantes
 
@@ -165,15 +186,16 @@ PWA debe funcionar 3 escenarios:
 - Flujo: probe AP 800ms → si responde abre `http://192.168.4.1/` → sino LAN IP cacheada → sino instrucciones manuales.
 
 ### Edición programas (ProgramasPage)
-- Predefinidos (idx 0-3): solo editar tempFinal → POST /programas/{idx} con `{ tempFinal }`.
-- Custom (idx 4-23): editar tempFinal + editar pasos + borrar → DELETE /programas/{idx}.
+- Todos los slots (idx 0-43) muestran editar + borrar en la UI — sin distinción visual predefinido/personal.
+- A nivel firmware: idx 0-3 solo aceptan `{ tempFinal }` vía POST; idx 4-43 aceptan nombre + pasos completos.
+- 44 slots total: idx 0-3 predefinidos, idx 4-43 custom (40 slots). `fetchProgramasOnce` descarta caché con largo ≠ 44.
 - Velocidad almacenada en firmware como °C/min × 10. UI muestra y edita en °C/min (float), convierte con `× 10` al guardar.
+- Validación temperatura: 30-1260°C en crear y editar (antes 30-1300°C y slotLibre hasta idx 23).
 - Tras guardar exitoso: actualiza Zustand store + localStorage (PROGRAMAS_CACHE) sin refetch.
-- **Normalización de signos de rampa** — `normalizarSignosRampa(pasos)` (top-level, antes de `pasosEfectivos`) corrige automáticamente el signo de velocidad al guardar: si `paso.velocidad > 0` y `paso.temperatura < anterior.temperatura`, flipa a negativo. Se aplica en dos puntos:
-  - `guardarNuevo`: envuelve el `.map(×10)` → `pasosParaFirmware` ya llega normalizado al POST y a `actualizarLocal`.
-  - `guardarPasos`: `pasosNormalizados = normalizarSignosRampa(editPasos.pasos)` antes del POST, usado también en `tempFinal` y `actualizarLocal`. Paso 0 nunca se toca (sin anterior). El firmware tiene la misma lógica en `editarPrograma()` al confirmar el campo Rampa.
+- **Agregar/quitar pasos mid-list** — `agregarPaso()` inserta después del paso con foco activo (`ultimoPasoFocus`, rastreado por `onFocus` en los 3 inputs de cada fila). `quitarPaso()` elimina la fila. Tope: 6 pasos (consistente con firmware `NUM_PASOS=6`). Reset al abrir el modal.
+- **Normalización de signos de rampa** — `normalizarSignosRampa(pasos)` corrige signo de velocidad al guardar: si `paso.velocidad > 0` y `paso.temperatura < anterior.temperatura`, flipa a negativo. Se aplica en `guardarNuevo` y `guardarPasos`. Paso 0 nunca se toca.
 - ProgramasPage refetchea siempre al montar (sin guard `programas.length > 0`) para evitar estado local obsoleto.
-- Antes de ejecutar un custom (idx ≥ 4): re-POST los pasos vía `postPrograma` para garantizar que la EEPROM tiene los datos actuales. El error se traga si falla (se asume que el usuario ya guardó antes por HTTP).
+- Antes de ejecutar un custom (idx ≥ 4): re-POST los pasos vía `postPrograma` para garantizar que la EEPROM tiene los datos actuales. El error se traga si falla.
 - `STORAGE_KEYS.ULTIMO_PROG(hornoId)` guarda el idx del último programa ejecutado desde la webapp.
 
 ### Limitación conocida: edición custom por MQTT
@@ -207,6 +229,11 @@ PWA debe funcionar 3 escenarios:
 - `rampa_rapida` → modal alerta con comando `cancelar_alarma`, cooldown Infinity.
 - `etapa`, `meseta`, `fin`, `alarma_critica`, `alarma_exceso`, `rampa_lenta` → toasts tipados (5s).
 - Corte de luz también se detecta por campo `cl` del estado MQTT (sin necesidad de notif).
+
+### Vinculación por AP y reclamado de password (LoginPage)
+
+- `vincularDetectadoAP()` — ruta de vinculación cuando el usuario conecta al AP del horno. Antes solo guardaba el horno con pass derivada. Desde 2026-08-13: llama `postConfigAP()` para hacer el reclamado de password igual que el flujo `vincularHorno`.
+- `postConfigAP()` en hornoService — POST /config con `X-Auth: <passDerivada>` y body `{ pass_admin: <passDerivada> }`. Si el firmware responde con `nuevaPass`, la persiste en localStorage (`STORAGE_KEYS.PASS`) antes de llamar `agregarHorno`. Fallback silencioso a `passDerivada` si falla (horno ya reclamado u otro error de red).
 
 ### Descubrimiento IP local (resuelto 2026-07-15)
 

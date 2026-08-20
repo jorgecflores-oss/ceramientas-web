@@ -27,7 +27,25 @@
       "Bash(dir /b \"C:\\\\\\\\Users\\\\\\\\Jorge\\\\\\\\CeramientasApp\")",
       "Bash(powershell *)",
       "Bash(npx tsc *)",
-      "Bash(npx oxlint *)"
+      "Bash(npx oxlint *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Jorge\" -Directory -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object FullName)",
+      "PowerShell(ls *)",
+      "PowerShell(head *)",
+      "Bash(dir \"C:\\\\users\\\\jorge\\\\ceramientasapp\")",
+      "Bash(npm run *)",
+      "Bash(wrangler --version)",
+      "Bash(npx web-push *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('dependencies',{}\\), indent=2\\)\\)\")",
+      "Bash(gh api *)",
+      "Bash(gh release *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(Get-Content *)",
+      "Bash(gh run *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Jorge\\\\AppData\\\\Local\\\\Arduino15\\\\packages\\\\esp32\" -Recurse -Filter \"HTTPClient.h\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -First 5 FullName)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Jorge\\\\AppData\\\\Local\\\\Arduino15\\\\packages\\\\esp32\" -Recurse -Filter \"HTTPClient.h\" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })"
     ]
   }
 }
