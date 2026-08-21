@@ -43,6 +43,7 @@ export interface EstadoMQTT {
   rampaRapida: boolean
   corteLuz: boolean
   termocuplaAbierta: boolean
+  termocuplaConfirmada: boolean
   estado: EstadoHorno
 }
 

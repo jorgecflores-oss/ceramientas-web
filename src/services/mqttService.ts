@@ -198,6 +198,7 @@ function mapearEstado(d: any): EstadoMQTT {
     rampaRapida: d.rr ?? d.rampaRapida ?? false,
     corteLuz: d.cl ?? d.corteLuz ?? false,
     termocuplaAbierta: d.tc ?? d.termocuplaAbierta ?? false,
+    termocuplaConfirmada: d.tcc ?? d.termocuplaConfirmada ?? false,
     estado: d.e ?? d.estado ?? 'idle',
   }
 }

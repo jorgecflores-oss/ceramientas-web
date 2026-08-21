@@ -63,6 +63,7 @@ export function HornoPage() {
   const corteLuzCooldownRef  = useRef(0)
   const rampaRapidaShownRef  = useRef(false)
   const termocuplaShownRef   = useRef(false)
+  const confirmarTermocuplaShownRef = useRef(false)
   const toastIdRef           = useRef(0)
 
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
@@ -70,6 +71,7 @@ export function HornoPage() {
   const [modalCorteLuz, setModalCorteLuz]       = useState(false)
   const [modalRampaRapida, setModalRampaRapida] = useState(false)
   const [modalTermocupla, setModalTermocupla]   = useState(false)
+  const [modalConfirmarTermocupla, setModalConfirmarTermocupla] = useState(false)
   const [modalNtfy, setModalNtfy]               = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; tipo: 'info' | 'warn' | 'error' }[]>([])
 
@@ -134,6 +136,7 @@ export function HornoPage() {
           rampaRapida: data.rr ?? data.rampaRapida ?? false,
           corteLuz: data.cl ?? data.corteLuz ?? false,
           termocuplaAbierta: data.tc ?? data.termocuplaAbierta ?? false,
+          termocuplaConfirmada: data.tcc ?? data.termocuplaConfirmada ?? false,
           estado: data.e ?? data.estado ?? 'idle',
         })
       })
@@ -192,6 +195,23 @@ export function HornoPage() {
     termocuplaShownRef.current = true
     setModalTermocupla(true)
   }, [estado?.termocuplaAbierta])
+
+  // Modal de confirmación — refleja el estado real del horno, no un click
+  // local. Si se confirma desde el programador (ENTER físico), se cierra
+  // solo. Si se abre la app con la falla ya activa y sin confirmar
+  // (reconexión, pestaña nueva), aparece igual — mismo criterio que el
+  // resto de la app al reflejar un proceso ya iniciado desde el equipo.
+  useEffect(() => {
+    if (!estado?.termocuplaAbierta || estado?.termocuplaConfirmada) {
+      confirmarTermocuplaShownRef.current = false
+      setModalConfirmarTermocupla(false)
+      return
+    }
+    if (modalTermocupla) return
+    if (confirmarTermocuplaShownRef.current) return
+    confirmarTermocuplaShownRef.current = true
+    setModalConfirmarTermocupla(true)
+  }, [estado?.termocuplaAbierta, estado?.termocuplaConfirmada, modalTermocupla])
 
   // Notificaciones tipadas del firmware via topic /notif
   useEffect(() => {
@@ -717,6 +737,35 @@ export function HornoPage() {
               className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
             >
               Esperar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Modal — Confirmar termocupla insertada */}
+    {modalConfirmarTermocupla && (
+      <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div className="bg-neutral-900 border border-orange-800 rounded-2xl p-6 w-full max-w-sm">
+          <h2 className="text-xl font-bold text-orange-400 mb-2">Antes de continuar</h2>
+          <p className="text-neutral-300 text-sm mb-4">
+            Insertá la nueva termocupla dentro del horno. Recién ahí tocá Continuar.
+          </p>
+          <p className="text-neutral-400 text-sm mb-6">
+            Si continuás sin haberla insertado, el sistema puede tomar una lectura fría como válida y sobrecalentar al reconectar.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { feedbackBoton(); setModalConfirmarTermocupla(false); enviarCmd('detener') }}
+              className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 active:scale-95 transition-all duration-75"
+            >
+              Detener horneada
+            </button>
+            <button
+              onClick={() => { feedbackBoton(); setModalConfirmarTermocupla(false); enviarCmd('confirmar_termocupla') }}
+              className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
+            >
+              Ya está en el horno — Continuar
             </button>
           </div>
         </div>
