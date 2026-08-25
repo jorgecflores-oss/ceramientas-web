@@ -193,6 +193,7 @@ function mapearEstado(d: any): EstadoMQTT {
     etapaTotal: d.et ?? d.etapaTotal ?? 1,
     horas: d.h ?? d.horas ?? 0,
     minutos: d.m ?? d.minutos ?? 0,
+    restanteMeseta: d.mr ?? d.minutosRestantesMeseta ?? null,
     rele: d.r ?? d.rele ?? false,
     rampaLenta: d.rl ?? d.rampaLenta ?? false,
     rampaRapida: d.rr ?? d.rampaRapida ?? false,

@@ -131,6 +131,7 @@ export function HornoPage() {
           etapaTotal: data.et ?? data.etapaTotal ?? 1,
           horas: data.h ?? data.horas ?? 0,
           minutos: data.m ?? data.minutos ?? 0,
+          restanteMeseta: data.mr ?? data.minutosRestantesMeseta ?? null,
           rele: data.r ?? data.rele ?? false,
           rampaLenta: data.rl ?? data.rampaLenta ?? false,
           rampaRapida: data.rr ?? data.rampaRapida ?? false,
@@ -463,6 +464,9 @@ export function HornoPage() {
   const enProceso = esProcesoActivo(estadoTxt)
   const enDirecta = estadoTxt === 'conexion_directa'
   const mesetaActual = estadoTxt === 'meseta' ? mesetaRestante(puntosTeoricos, Date.now()) : null
+  const restanteMesetaMin = estadoTxt === 'meseta'
+    ? (estado?.restanteMeseta ?? mesetaActual?.restanteMin ?? null)
+    : null
 
   const finalizadoOK =
     estadoTxt === 'finalizado' ||
@@ -534,8 +538,8 @@ export function HornoPage() {
                 Etapa {estado?.etapa ?? 0} de {estado?.etapaTotal ?? 0}
                 {' — '}
                 {estadoTxt === 'meseta'
-                  ? (mesetaActual
-                      ? `Meseta a ${tempObj}°C — faltan ${mesetaActual.restanteMin} min`
+                  ? (restanteMesetaMin !== null
+                      ? `Meseta a ${tempObj}°C — faltan ${restanteMesetaMin} min`
                       : `Meseta a ${tempObj}°C`)
                   : `Rampa hasta ${tempObj}°C`}
               </p>

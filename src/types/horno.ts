@@ -38,6 +38,7 @@ export interface EstadoMQTT {
   etapaTotal: number
   horas: number
   minutos: number
+  restanteMeseta: number | null
   rele: boolean
   rampaLenta: boolean
   rampaRapida: boolean
