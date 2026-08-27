@@ -104,14 +104,17 @@ Contexto del sistema de alarmas del controlador: dispara alarma de "rampa
 lenta" si una etapa tarda mas de 15 minutos por encima de su duracion
 teorica (segun la velocidad programada). No hay alarma por adelantarse.
 
-Genera un archivo PDF, tamano A4, con:
+Genera un archivo PDF, tamano A4, uniendo todo esto en un solo informe:
 - El programa completo en una tabla clara (todos los pasos, igual que se
   ve en la pantalla Programas de la app).
 - El grafico con ambas curvas (teorica y real) superpuestas en el mismo
   eje de tiempo.
-- La tabla RESUMEN POR ETAPA (mas abajo) explicada en texto: que etapas
-  se adelantaron, cuales se atrasaron, y si alguna estuvo cerca del
-  umbral de alarma de 15 minutos (columna margen hasta alarma).
+- La tabla RESUMEN POR ETAPA: que etapas se adelantaron, cuales se
+  atrasaron, y si alguna estuvo cerca del umbral de alarma de 15 minutos
+  (columna margen hasta alarma).
+- La tabla RANGOS DE TEMPERATURA: rampa real observada (C/min) cada
+  100C, para ver capacidad real del horno tramo a tramo, mas fino que
+  por etapa de programa.
 - Recomendacion concreta para la proxima horneada: si alguna velocidad
   de rampa programada conviene subir o bajar para ajustarse mejor a la
   capacidad real de este horno, con el valor sugerido en C/min.`
@@ -139,6 +142,12 @@ Genera un archivo PDF, tamano A4, con:
     }
   }
 
+  let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min)\n'
+  tablaRangos += 'Rango (C) | Minima | Maxima | Promedio\n'
+  for (const b of calcularRangosRampa(snapshot.historialTemp)) {
+    tablaRangos += `${b.desde}-${b.hasta} | ${b.min.toFixed(1)} | ${b.max.toFixed(1)} | ${b.promedio.toFixed(1)}\n`
+  }
+
   let tablaDatos = 'DATOS (minuto, temp teorica C, temp real C)\n'
   for (const pr of snapshot.historialTemp) {
     const minuto = ((pr.t - snapshot.tInicio) / 60000).toFixed(2)
@@ -146,7 +155,7 @@ Genera un archivo PDF, tamano A4, con:
     tablaDatos += `${minuto}, ${teo !== null ? teo.toFixed(1) : ''}, ${pr.temp}\n`
   }
 
-  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${tablaPrograma}\n${tablaResumen}\n${tablaDatos}`
+  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${tablaPrograma}\n${tablaResumen}\n${tablaRangos}\n${tablaDatos}`
   descargarTexto(nombreArchivo, contenido)
 }
 
