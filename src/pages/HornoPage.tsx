@@ -319,21 +319,27 @@ export function HornoPage() {
     let yaHayAncla = false
     if (!esNuevo) {
       const s = useHornoStore.getState()
-      const anclaTeoricaValida = (s.puntosTeoricosMap[hornoId]?.length ?? 0) > 1
-      if (anclaTeoricaValida && s.tIniciosMap[hornoId] && s.tempIniciosMap[hornoId] != null) {
+      const anclaCacheada = (s.puntosTeoricosMap[hornoId]?.length ?? 0) > 1
+        && s.tIniciosMap[hornoId] != null && s.tempIniciosMap[hornoId] != null
+      const epochPrevio = s.curvaEpochMap[hornoId] ?? null
+      const procesoMs = ((estado.horas ?? 0) * 60 + (estado.minutos ?? 0)) * 60000
+      tAncla = tCapture - procesoMs
+      const primerTemp = await resincronizarCurvaReal(hornoId, tAncla)
+      const epochNuevo = useHornoStore.getState().curvaEpochMap[hornoId] ?? null
+      // Ancla cacheada solo vale si el epoch del buffer coincide — mismo
+      // arranque de horno, no una horneada vieja pisando la nueva.
+      const mismaHorneada = anclaCacheada && primerTemp !== null
+        && epochPrevio !== null && epochPrevio === epochNuevo
+      if (mismaHorneada) {
         yaHayAncla = true
         tAncla = s.tIniciosMap[hornoId]!
         tempAncla = s.tempIniciosMap[hornoId]!
+      } else if (primerTemp !== null) {
+        tempAncla = primerTemp
       } else {
-        const procesoMs = ((estado.horas ?? 0) * 60 + (estado.minutos ?? 0)) * 60000
-        tAncla = tCapture - procesoMs
+        return
       }
-      const primerTemp = await resincronizarCurvaReal(hornoId, tAncla)
-      if (!yaHayAncla && primerTemp !== null) tempAncla = primerTemp
       if (yaHayAncla) return
-      // Sin ancla previa y sin dato real todavía: no adivinar con
-      // temperatura actual. Cortar acá — próxima reconexión reintenta.
-      if (!yaHayAncla && primerTemp === null) return
     }
 
     const aplicarCurva = (progs: typeof programas) => {
