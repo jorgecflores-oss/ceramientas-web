@@ -104,20 +104,27 @@ Contexto del sistema de alarmas del controlador: dispara alarma de "rampa
 lenta" si una etapa tarda mas de 15 minutos por encima de su duracion
 teorica (segun la velocidad programada). No hay alarma por adelantarse.
 
-Genera un archivo PDF, tamano A4, uniendo todo esto en un solo informe:
+Genera un archivo PDF, tamano A4, uniendo todo esto en un solo informe.
+IMPORTANTE: el informe tiene que incluir texto de analisis escrito, en
+prosa, no solo las tablas sueltas - las tablas solas no alcanzan.
+
+Contenido del PDF:
 - El programa completo en una tabla clara (todos los pasos, igual que se
   ve en la pantalla Programas de la app).
 - El grafico con ambas curvas (teorica y real) superpuestas en el mismo
   eje de tiempo.
-- La tabla RESUMEN POR ETAPA: que etapas se adelantaron, cuales se
-  atrasaron, y si alguna estuvo cerca del umbral de alarma de 15 minutos
-  (columna margen hasta alarma).
-- La tabla RANGOS DE TEMPERATURA: rampa real observada (C/min) cada
-  100C, para ver capacidad real del horno tramo a tramo, mas fino que
-  por etapa de programa.
-- Recomendacion concreta para la proxima horneada: si alguna velocidad
-  de rampa programada conviene subir o bajar para ajustarse mejor a la
-  capacidad real de este horno, con el valor sugerido en C/min.`
+- La tabla RESUMEN POR ETAPA (datos mas abajo).
+- La tabla RANGOS DE TEMPERATURA (datos mas abajo): rampa real
+  observada (C/min) cada 100C, capacidad real del horno tramo a tramo.
+- Despues de las tablas, un ANALISIS ESCRITO EN PROSA (texto corrido,
+  no una lista) que:
+  - Interprete la tabla RESUMEN POR ETAPA: que etapas se adelantaron,
+    cuales se atrasaron, y si alguna estuvo cerca del umbral de alarma
+    de 15 minutos (columna margen hasta alarma).
+  - Cierre con una recomendacion concreta para la proxima horneada: si
+    alguna velocidad de rampa programada conviene subir o bajar para
+    ajustarse mejor a la capacidad real de este horno, con el valor
+    sugerido en C/min.`
 
   let tablaPrograma = 'PROGRAMA: (sin datos)\n'
   if (prog) {
