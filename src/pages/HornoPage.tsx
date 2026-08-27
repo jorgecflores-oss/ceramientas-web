@@ -331,6 +331,9 @@ export function HornoPage() {
       const primerTemp = await resincronizarCurvaReal(hornoId, tAncla)
       if (!yaHayAncla && primerTemp !== null) tempAncla = primerTemp
       if (yaHayAncla) return
+      // Sin ancla previa y sin dato real todavía: no adivinar con
+      // temperatura actual. Cortar acá — próxima reconexión reintenta.
+      if (!yaHayAncla && primerTemp === null) return
     }
 
     const aplicarCurva = (progs: typeof programas) => {
