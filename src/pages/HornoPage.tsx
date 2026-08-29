@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
-import { suscribirEstado, suscribirNotif, publicarComando } from '../services/mqttService'
+import { suscribirEstado, suscribirNotif, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
 import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
@@ -64,6 +64,7 @@ export function HornoPage() {
   const rampaRapidaShownRef  = useRef(false)
   const termocuplaShownRef   = useRef(false)
   const confirmarTermocuplaShownRef = useRef(false)
+  const termocuplaEsperarRef = useRef(false)
   const toastIdRef           = useRef(0)
 
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
@@ -120,9 +121,8 @@ export function HornoPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [horno?.hornoId, pass])
 
-  useEffect(() => {
-    if (!horno?.hornoId) return
-    getEstado(horno.hornoId)
+  const fetchEstadoFresco = useCallback((hid: string) => {
+    getEstado(hid)
       .then((data: any) => {
         setEstado({
           temperatura: data.t ?? data.temperatura ?? 0,
@@ -141,9 +141,31 @@ export function HornoPage() {
           estado: data.e ?? data.estado ?? 'idle',
         })
       })
-      .catch(e => console.error('[bootstrap estado]', e))
+      .catch(e => console.error('[fetchEstadoFresco]', e))
+  }, [setEstado])
+
+  useEffect(() => {
+    if (!horno?.hornoId) return
+    fetchEstadoFresco(horno.hornoId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [horno?.hornoId])
+
+  // Reconexión al volver la pestaña a foreground. Mobile suspende el
+  // WebSocket de MQTT en background (pantalla bloqueada, app atrás) y no
+  // siempre se recupera solo — nada en la app lo forzaba hasta ahora.
+  useEffect(() => {
+    if (!horno?.hornoId) return
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      fetchEstadoFresco(horno.hornoId)
+      if (!estaConectado()) {
+        detenerMQTT()
+        iniciarMQTT()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [horno?.hornoId, fetchEstadoFresco])
 
   useEffect(() => {
     const estadoActual = estado?.estado
@@ -191,24 +213,24 @@ export function HornoPage() {
 
   // Termocupla abierta detectada por campo tc del estado
   useEffect(() => {
-    if (!estado?.termocuplaAbierta) { termocuplaShownRef.current = false; return }
+    if (!estado?.termocuplaAbierta) { termocuplaShownRef.current = false; termocuplaEsperarRef.current = false; return }
     if (termocuplaShownRef.current) return
     termocuplaShownRef.current = true
     setModalTermocupla(true)
   }, [estado?.termocuplaAbierta])
 
-  // Modal de confirmación — refleja el estado real del horno, no un click
-  // local. Si se confirma desde el programador (ENTER físico), se cierra
-  // solo. Si se abre la app con la falla ya activa y sin confirmar
-  // (reconexión, pestaña nueva), aparece igual — mismo criterio que el
-  // resto de la app al reflejar un proceso ya iniciado desde el equipo.
+  // Modal de confirmación — solo aparece después de que el usuario elige
+  // "Esperar" en el modal de termocupla abierta (termocuplaEsperarRef).
+  // No se guía por el estado modalTermocupla porque ambos efectos corren
+  // en el mismo commit cuando la falla arranca — leer modalTermocupla acá
+  // ve el valor viejo (false) y abre los dos modales juntos.
   useEffect(() => {
     if (!estado?.termocuplaAbierta || estado?.termocuplaConfirmada) {
       confirmarTermocuplaShownRef.current = false
       setModalConfirmarTermocupla(false)
       return
     }
-    if (modalTermocupla) return
+    if (!termocuplaEsperarRef.current) return
     if (confirmarTermocuplaShownRef.current) return
     confirmarTermocuplaShownRef.current = true
     setModalConfirmarTermocupla(true)
@@ -746,7 +768,7 @@ export function HornoPage() {
               Detener horneada
             </button>
             <button
-              onClick={() => { feedbackBoton(); setModalTermocupla(false); enviarCmd('cancelar_alarma') }}
+              onClick={() => { feedbackBoton(); termocuplaEsperarRef.current = true; setModalTermocupla(false); enviarCmd('cancelar_alarma') }}
               className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
             >
               Esperar
