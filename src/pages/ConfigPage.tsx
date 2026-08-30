@@ -169,10 +169,12 @@ export function ConfigPage({ onAgregarHorno }: Props) {
       }
       sessionStorage.setItem('@ceramientas_restore', JSON.stringify({ hornos, passwords }))
       localStorage.clear()
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations()
-        await Promise.all(regs.map(r => r.unregister()))
-      }
+      try {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations()
+          await Promise.all(regs.map(r => r.unregister()))
+        }
+      } catch { /* algunos browsers bloquean getRegistrations — igual recargamos */ }
       location.reload()
     } catch (e) {
       setReiniciando(false)
