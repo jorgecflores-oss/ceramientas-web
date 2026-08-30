@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP } from '../services/hornoService'
+import { OTA_BIN_URL } from '../utils/constants'
 import { publicarComando } from '../services/mqttService'
 import { AP_IP } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
@@ -485,19 +486,23 @@ export function ConfigPage({ onAgregarHorno }: Props) {
               {/* Rescate: instalar .bin por URL directa (bypassea otaChequearVersion) */}
               <div className="border-b border-neutral-800 pb-3">
                 <button
-                  onClick={() => { setShowUrlRescate(v => !v); setUrlRescate('') }}
+                  onClick={() => {
+                    if (showUrlRescate) { setShowUrlRescate(false); return }
+                    const ver = otaVersionGitHub || versionFw || ''
+                    setUrlRescate(ver ? OTA_BIN_URL(ver) : '')
+                    setShowUrlRescate(true)
+                  }}
                   className="text-xs text-neutral-600 hover:text-neutral-400 transition pt-1"
                 >
                   {showUrlRescate ? '▲ Cancelar' : '↗ Forzar instalación por URL directa'}
                 </button>
                 {showUrlRescate && (
                   <div className="mt-2 flex flex-col gap-2">
-                    <p className="text-xs text-neutral-500">Pegá la URL del archivo .bin de GitHub Releases. El firmware descarga e instala sin verificar versión.</p>
+                    <p className="text-xs text-neutral-500">Editá el número de versión en la URL o pegá una URL diferente. El firmware descarga e instala sin verificar versión.</p>
                     <textarea
                       value={urlRescate}
                       onChange={e => setUrlRescate(e.target.value)}
-                      placeholder="https://github.com/.../releases/download/vX.Y.Z/....bin"
-                      rows={3}
+                      rows={4}
                       className="w-full bg-neutral-800 text-white text-xs rounded-lg p-2 border border-neutral-700 resize-none"
                     />
                     <button
