@@ -34,6 +34,9 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [otaMensaje, setOtaMensaje] = useState('')
   const [otaVersionGitHub, setOtaVersionGitHub] = useState('')
   const otaIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [showUrlRescate, setShowUrlRescate] = useState(false)
+  const [urlRescate, setUrlRescate] = useState('')
+  const [enviandoUrlRescate, setEnviandoUrlRescate] = useState(false)
 
   const [wifiStep, setWifiStep] = useState<WifiStep>(null)
   const [wifiUrl, setWifiUrl] = useState('')
@@ -212,6 +215,22 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     setOtaProgress(0)
     setOtaMensaje('')
     setOtaVersionGitHub('')
+  }
+
+  async function instalarUrlDirecta() {
+    if (!horno?.hornoId || !urlRescate.trim()) return
+    feedbackBoton()
+    setEnviandoUrlRescate(true)
+    try {
+      await postComando(horno.hornoId, `ota_forzar_url:${urlRescate.trim()}`)
+      alert('Comando enviado. El horno va a descargar el firmware y reiniciar. Puede tardar 1-2 minutos.')
+      setShowUrlRescate(false)
+      setUrlRescate('')
+    } catch (e) {
+      alert('Error enviando comando: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setEnviandoUrlRescate(false)
+    }
   }
 
   async function iniciarOTA() {
@@ -451,7 +470,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
               <button
                 onClick={iniciarOTA}
                 disabled={otaStep !== null}
-                className={`w-full flex items-center gap-4 py-3 border-b border-neutral-800 transition ${otaStep !== null ? 'opacity-50 cursor-not-allowed' : 'hover:bg-neutral-800 rounded-xl'}`}
+                className={`w-full flex items-center gap-4 py-3 border-neutral-800 transition ${otaStep !== null ? 'opacity-50 cursor-not-allowed' : 'hover:bg-neutral-800 rounded-xl'} ${showUrlRescate ? '' : 'border-b'}`}
               >
                 <span className="text-2xl">⬆️</span>
                 <div className="flex-1 text-left">
@@ -462,6 +481,35 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                 </div>
                 <span className="text-neutral-600">›</span>
               </button>
+
+              {/* Rescate: instalar .bin por URL directa (bypassea otaChequearVersion) */}
+              <div className="border-b border-neutral-800 pb-3">
+                <button
+                  onClick={() => { setShowUrlRescate(v => !v); setUrlRescate('') }}
+                  className="text-xs text-neutral-600 hover:text-neutral-400 transition pt-1"
+                >
+                  {showUrlRescate ? '▲ Cancelar' : '↗ Forzar instalación por URL directa'}
+                </button>
+                {showUrlRescate && (
+                  <div className="mt-2 flex flex-col gap-2">
+                    <p className="text-xs text-neutral-500">Pegá la URL del archivo .bin de GitHub Releases. El firmware descarga e instala sin verificar versión.</p>
+                    <textarea
+                      value={urlRescate}
+                      onChange={e => setUrlRescate(e.target.value)}
+                      placeholder="https://github.com/.../releases/download/vX.Y.Z/....bin"
+                      rows={3}
+                      className="w-full bg-neutral-800 text-white text-xs rounded-lg p-2 border border-neutral-700 resize-none"
+                    />
+                    <button
+                      onClick={instalarUrlDirecta}
+                      disabled={enviandoUrlRescate || !urlRescate.trim()}
+                      className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-sm font-semibold py-2 rounded-xl transition"
+                    >
+                      {enviandoUrlRescate ? 'Enviando...' : 'Instalar'}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <button
                 onClick={restaurarPredefinidos}
