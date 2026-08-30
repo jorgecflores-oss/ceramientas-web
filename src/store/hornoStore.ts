@@ -401,25 +401,45 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       set(s => ({ continuarEpoch: { ...s.continuarEpoch, [id]: false } }))
     }
 
-    const t0 = get().tIniciosMap[id] ?? Date.now()
-    const puntosNuevos = resp.pts.map(p => ({ t: t0 + p.m * 60000, temp: p.t }))
+    // Post corte de luz: el nuevo epoch arrancó en T_continue, no en T_start.
+    // Los minutos del firmware son relativos al reinicio del proceso, no al arranque original.
+    // Se calcula T_continue desde el tiempo actual para que los puntos post-corte
+    // queden correctamente ubicados después de los puntos pre-corte en el gráfico.
+    let t0 = get().tIniciosMap[id] ?? Date.now()
+    if (esNuevoEpoch && esContinuar) {
+      const lastM = resp.pts.length > 0 ? resp.pts[resp.pts.length - 1].m : 0
+      t0 = Date.now() - lastM * 60000
+    }
+
+    // Al detectar el nuevo epoch post-continuación, descartar los pts del fetch viejo
+    // (pedíamos desde=N del epoch anterior; reset a 0 para re-fetchear el nuevo desde el inicio).
+    const puntosNuevos = (esNuevoEpoch && esContinuar)
+      ? []
+      : resp.pts.map(p => ({ t: t0 + p.m * 60000, temp: p.t }))
     const prev = (esNuevoEpoch && !esContinuar) ? [] : (get().historialTemps[id] ?? [])
     const combinado = [...prev, ...puntosNuevos]
     const now = Date.now()
+    // Usar el primer punto de la historia completa como base para el downsample
+    // (no T_continue) para preservar los puntos pre-corte de luz.
+    const t0Downsample = combinado.length > 0 ? combinado[0].t : t0
     const nuevo = combinado.length > MAX_HISTORIAL
-      ? downsamplePorBuckets(combinado, t0, now, MAX_HISTORIAL)
+      ? downsamplePorBuckets(combinado, t0Downsample, now, MAX_HISTORIAL)
       : combinado
 
     const historialTemps = { ...get().historialTemps, [id]: nuevo }
     const curvaEpochMap  = { ...get().curvaEpochMap, [id]: resp.epoch }
-    const curvaDesdeMap  = { ...get().curvaDesdeMap, [id]: resp.desde + resp.pts.length }
+    // Post-continuación: resetear desde=0 para re-fetchear el nuevo epoch desde el inicio.
+    const curvaDesdeMap = (esNuevoEpoch && esContinuar)
+      ? { ...get().curvaDesdeMap, [id]: 0 }
+      : { ...get().curvaDesdeMap, [id]: resp.desde + resp.pts.length }
     const tIniciosMap    = { ...get().tIniciosMap, [id]: t0 }
     set({ historialTemps, historialTemp: nuevo, curvaEpochMap, curvaDesdeMap, tIniciosMap })
 
+    const desdeGuardar = (esNuevoEpoch && esContinuar) ? 0 : resp.desde + resp.pts.length
     try {
       localStorage.setItem(
         STORAGE_KEYS.CURVA_META(id),
-        JSON.stringify({ epoch: resp.epoch, desde: resp.desde + resp.pts.length, t0 })
+        JSON.stringify({ epoch: resp.epoch, desde: desdeGuardar, t0 })
       )
     } catch (e) {
       console.error('[aplicarCurvaFirmware meta persist]', e)
@@ -537,7 +557,9 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const histActual = s.historialTemps[id] ?? []
     const esPrograma = puntosTeoricoActuales.length > 1
     if (histActual.length === 0 && !esPrograma) return
-    const tInicioActual = s.tIniciosMap[id] ?? histActual[0]?.t ?? Date.now()
+    // Preferir el primer punto real del historial como tInicio — en horneadas que
+    // continuaron tras corte de luz, tIniciosMap puede apuntar a T_continue (≠ T_start).
+    const tInicioActual = histActual[0]?.t ?? s.tIniciosMap[id] ?? Date.now()
     const lastDataT = histActual.length > 0 ? histActual[histActual.length - 1].t : tInicioActual
     const snap: Snapshot = {
       modo: esPrograma ? 'programa' : 'directa',

@@ -386,6 +386,28 @@ export function HornoPage() {
     let tempAncla = tempCapture
     let tAncla = tCapture
     let yaHayAncla = false
+
+    // Corte de luz → "continuar": recuperar ancla ORIGINAL (T_start, tempInicio)
+    // antes de llamar clearCurvaTeorica() que la nullea.
+    // La transición activo→idle (reboot del firmware) no limpia el store (fix previo),
+    // así que tIniciosMap todavía tiene el T_start y tempIniciosMap el tempInicio real.
+    // Fallback: primer punto del historial preservado, que siempre es {T_start, tempInicio}.
+    if (esNuevo && keepHistorial) {
+      const s = useHornoStore.getState()
+      const tPrevio   = s.tIniciosMap[hornoId]
+      const tempPrevio = s.tempIniciosMap[hornoId]
+      if (tPrevio != null && tempPrevio != null) {
+        tAncla    = tPrevio
+        tempAncla = tempPrevio
+      } else {
+        const histPrevio = s.historialTemps[hornoId] ?? []
+        if (histPrevio.length > 0) {
+          tAncla    = histPrevio[0].t
+          tempAncla = histPrevio[0].temp
+        }
+      }
+    }
+
     if (!esNuevo) {
       const s = useHornoStore.getState()
       const anclaCacheada = (s.puntosTeoricosMap[hornoId]?.length ?? 0) > 1
@@ -535,7 +557,14 @@ export function HornoPage() {
         iniciarSesionDirecta()
       }
     } else if (prevEraActivo && actualInactivo) {
-      if (hornoId) {
+      const esCorteLuzTransicion = prevCorteLuzRef.current
+      if (hornoId && esCorteLuzTransicion) {
+        // El firmware rebootó por corte de luz: NO limpiar historial ni ancla.
+        // El usuario todavía no decidió si continúa o detiene. Los datos pre-corte
+        // y el tInicio/tempInicio originales deben sobrevivir para que "continuar"
+        // reconstruya la curva desde el principio del programa.
+        useHornoStore.getState().flushHistorial()
+      } else if (hornoId) {
         const desde = useHornoStore.getState().curvaDesdeMap[hornoId] ?? 0
         getCurva(hornoId, desde)
           .then(resp => useHornoStore.getState().aplicarCurvaFirmware(hornoId, resp))
