@@ -60,6 +60,7 @@ interface HornoState {
   curvaDesdeMap: Record<string, number>
   tempIniciosMap: Record<string, number | null>
   mqttConectado: boolean
+  continuarEpoch: Record<string, boolean>
   ultimoVia: Record<string, 'http' | 'mqtt' | null>
   ultimoRespuestaAt: Record<string, number>
 
@@ -100,6 +101,7 @@ interface HornoState {
   setUltimoYMax: (id: string, ymax: number) => void
   guardarSnapshot: () => void
   limpiarSnapshot: (id: string) => void
+  marcarContinuar: (hornoId: string) => void
   loadCurvaFromStorage: () => void
   loadFromStorage: () => void
 }
@@ -188,6 +190,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   curvaDesdeMap: {},
   tempIniciosMap: {},
   mqttConectado: false,
+  continuarEpoch: {},
   ultimoVia: {},
   ultimoRespuestaAt: {},
 
@@ -382,9 +385,16 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const esNuevoEpoch = epochPrevio === null || epochPrevio !== resp.epoch
     if (!esNuevoEpoch && resp.pts.length === 0) return
 
+    // Si el proceso reinició por "continuar" tras corte de luz, preservar los datos
+    // históricos previos al corte como base para el nuevo epoch.
+    const esContinuar = get().continuarEpoch[id] ?? false
+    if (esNuevoEpoch && esContinuar) {
+      set(s => ({ continuarEpoch: { ...s.continuarEpoch, [id]: false } }))
+    }
+
     const t0 = get().tIniciosMap[id] ?? Date.now()
     const puntosNuevos = resp.pts.map(p => ({ t: t0 + p.m * 60000, temp: p.t }))
-    const prev = esNuevoEpoch ? [] : (get().historialTemps[id] ?? [])
+    const prev = (esNuevoEpoch && !esContinuar) ? [] : (get().historialTemps[id] ?? [])
     const combinado = [...prev, ...puntosNuevos]
     const now = Date.now()
     const nuevo = combinado.length > MAX_HISTORIAL
@@ -442,7 +452,8 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const historialTemps = { ...get().historialTemps, [id]: [] }
     const curvaEpochMap  = { ...get().curvaEpochMap, [id]: null }
     const curvaDesdeMap  = { ...get().curvaDesdeMap, [id]: 0 }
-    set({ historialTemps, historialTemp: [], curvaEpochMap, curvaDesdeMap })
+    const continuarEpoch = { ...get().continuarEpoch, [id]: false }
+    set({ historialTemps, historialTemp: [], curvaEpochMap, curvaDesdeMap, continuarEpoch })
   },
 
   setProgramas: (p) => {
@@ -538,6 +549,10 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const snapshots = { ...s.snapshots, [id]: null }
     const snapshot = s.hornoActivoId === id ? null : s.snapshot
     set({ snapshots, snapshot })
+  },
+
+  marcarContinuar: (hornoId) => {
+    set(s => ({ continuarEpoch: { ...s.continuarEpoch, [hornoId]: true } }))
   },
 
   loadCurvaFromStorage: () => {

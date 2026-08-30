@@ -50,6 +50,7 @@ export function HornoPage() {
   const setCurvaTeorica = useHornoStore((s) => s.setCurvaTeorica)
   const clearCurvaTeorica = useHornoStore((s) => s.clearCurvaTeorica)
   const resetHistorial = useHornoStore((s) => s.resetHistorial)
+  const marcarContinuar = useHornoStore((s) => s.marcarContinuar)
   const registrarRespuesta = useHornoStore((s) => s.registrarRespuesta)
   const loadCurvaFromStorage = useHornoStore((s) => s.loadCurvaFromStorage)
   const setHorno = useHornoStore((s) => s.setHorno)
@@ -61,6 +62,9 @@ export function HornoPage() {
 
   const estadoPrevioRef      = useRef<string | null>(null)
   const corteLuzCooldownRef  = useRef(0)
+  const prevCorteLuzRef      = useRef(false)
+  const continuarRetryRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const continuarRetriesRef  = useRef(0)
   const rampaRapidaShownRef  = useRef(false)
   const termocuplaShownRef   = useRef(false)
   const confirmarTermocuplaShownRef = useRef(false)
@@ -201,7 +205,16 @@ export function HornoPage() {
     if (now - corteLuzCooldownRef.current < 30000) return
     corteLuzCooldownRef.current = now
     setModalCorteLuz(true)
+    // Marca para que la transición idle→activo sepa que viene de un corte de luz
+    prevCorteLuzRef.current = true
   }, [estado?.corteLuz])
+
+  // Limpieza del timer de retry al desmontar
+  useEffect(() => {
+    return () => {
+      if (continuarRetryRef.current) clearTimeout(continuarRetryRef.current)
+    }
+  }, [])
 
   // Rampa rápida detectada por campo rr del estado
   useEffect(() => {
@@ -280,6 +293,23 @@ export function HornoPage() {
     }
   }
 
+  function cancelarRetryContinuar() {
+    if (continuarRetryRef.current) { clearTimeout(continuarRetryRef.current); continuarRetryRef.current = null }
+    continuarRetriesRef.current = 0
+  }
+
+  function agendarRetryContinuar() {
+    if (continuarRetriesRef.current >= 3) return
+    continuarRetryRef.current = setTimeout(async () => {
+      continuarRetryRef.current = null
+      const estActual = useHornoStore.getState().estados[horno?.hornoId ?? '']?.estado ?? null
+      if (esProcesoActivo(estActual)) return  // ya está corriendo
+      continuarRetriesRef.current++
+      await enviarCmd('continuar')
+      agendarRetryContinuar()
+    }, 8000)
+  }
+
   async function parar() {
     if (!horno) return
     if (!confirm('¿Parar horneado?')) return
@@ -318,7 +348,7 @@ export function HornoPage() {
     return null
   }
 
-  async function calcularYGuardarCurva(esNuevo: boolean) {
+  async function calcularYGuardarCurva(esNuevo: boolean, keepHistorial = false) {
     if (!horno?.hornoId || !estado) return
     const hornoId     = horno.hornoId
     const tCapture    = Date.now()
@@ -372,11 +402,15 @@ export function HornoPage() {
     }
 
     if (esNuevo) {
-      resetHistorial()
+      // keepHistorial=true: viene de "continuar" post corte de luz — preserva
+      // el historial del teléfono para mostrar la curva pre-corte en el gráfico.
+      if (!keepHistorial) resetHistorial()
       clearCurvaTeorica()
       useHornoStore.getState().limpiarSnapshot(hornoId)
-      const primerTempReal = await resincronizarCurvaReal(hornoId, tAncla)
-      if (primerTempReal !== null) tempAncla = primerTempReal
+      if (!keepHistorial) {
+        const primerTempReal = await resincronizarCurvaReal(hornoId, tAncla)
+        if (primerTempReal !== null) tempAncla = primerTempReal
+      }
     }
 
     // Si el último ejecutado fue un programa custom (idx ≥ 4), buscarlo
@@ -453,8 +487,16 @@ export function HornoPage() {
         }
       }
     } else if ((prev === 'idle' || prev === 'finalizado') && actualActivo) {
-      if (actualPrograma) calcularYGuardarCurva(true)
-      else iniciarSesionDirecta()
+      // Cancelar retry de "continuar" — el horno ya arrancó
+      if (continuarRetryRef.current) { clearTimeout(continuarRetryRef.current); continuarRetryRef.current = null }
+      if (actualPrograma) {
+        const eraCorteLuz = prevCorteLuzRef.current
+        prevCorteLuzRef.current = false
+        if (eraCorteLuz && hornoId) marcarContinuar(hornoId)
+        calcularYGuardarCurva(true, eraCorteLuz)
+      } else {
+        iniciarSesionDirecta()
+      }
     } else if (prevEraActivo && actualInactivo) {
       if (hornoId) {
         const desde = useHornoStore.getState().curvaDesdeMap[hornoId] ?? 0
@@ -694,13 +736,19 @@ export function HornoPage() {
           <p className="text-neutral-300 text-sm mb-6">¿Continuamos la horneada?</p>
           <div className="flex gap-3">
             <button
-              onClick={() => { feedbackBoton(); setModalCorteLuz(false); enviarCmd('detener') }}
+              onClick={() => { feedbackBoton(); setModalCorteLuz(false); cancelarRetryContinuar(); enviarCmd('detener') }}
               className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 active:scale-95 transition-all duration-75"
             >
               Cancelar
             </button>
             <button
-              onClick={() => { feedbackBoton(); setModalCorteLuz(false); enviarCmd('continuar') }}
+              onClick={() => {
+                feedbackBoton()
+                setModalCorteLuz(false)
+                continuarRetriesRef.current = 0
+                enviarCmd('continuar')
+                agendarRetryContinuar()
+              }}
               className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 active:scale-95 rounded-xl text-white font-bold transition-all duration-75"
             >
               Continuar

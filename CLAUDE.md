@@ -19,8 +19,9 @@ Conecta ESP32 firmware v3.4.0+ vía MQTT WSS + HTTP LAN/AP.
 
 ## Reglas absolutas
 
-- Clauco solo edita. Jorge corre dev/build.
-- NUNCA commit sin autorización.
+- Clauco edita, verifica build (`npm run build`) y commitea al terminar cada tarea.
+- Jorge pushea a GitHub. Clauco no puede pushear (sin auth GitHub en el entorno).
+- Un commit por tarea completa — no commitear cada edit individual.
 - Español rioplatense código comentarios.
 - Prompts Clauco terminan `NO COMPILAR NO EJECUTAR`.
 - TypeScript estricto. Sin `any` salvo mapeo MQTT.
@@ -101,7 +102,7 @@ Fase 3: push
 
 ```powershell
 npm run dev        # localhost:5173
-npm run build      # dist/
+npm run build      # dist/ — Clauco corre esto antes de cada commit
 npm run preview
 ```
 
