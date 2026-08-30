@@ -7,6 +7,7 @@ import { ProgramasPage } from './pages/ProgramasPage'
 import { HistorialPage } from './pages/HistorialPage'
 import { ConfigPage } from './pages/ConfigPage'
 import { BottomNav } from './components/BottomNav'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import type { Page } from './types/horno'
 
 function App() {
@@ -33,10 +34,12 @@ function App() {
 
   return (
     <>
-      {page === 'horno' && <HornoPage />}
-      {page === 'programas' && <ProgramasPage />}
-      {page === 'historial' && <HistorialPage />}
-      {page === 'config' && <ConfigPage onAgregarHorno={() => setPage('login')} />}
+      <ErrorBoundary key={page}>
+        {page === 'horno' && <HornoPage />}
+        {page === 'programas' && <ProgramasPage />}
+        {page === 'historial' && <HistorialPage />}
+        {page === 'config' && <ConfigPage onAgregarHorno={() => setPage('login')} />}
+      </ErrorBoundary>
       <BottomNav active={page} onChange={setPage} />
     </>
   )
