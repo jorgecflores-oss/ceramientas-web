@@ -5,12 +5,21 @@ import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 
 const CAPACIDAD_PROGRAMAS = 44
 
+function parsoPasoValido(p: unknown): boolean {
+  return (
+    p !== null && typeof p === 'object' &&
+    typeof (p as Record<string, unknown>).velocidad === 'number' &&
+    typeof (p as Record<string, unknown>).temperatura === 'number' &&
+    typeof (p as Record<string, unknown>).tiempo === 'number'
+  )
+}
+
 function parseProgramasCacheValido(raw: string | null): Programa[] | null {
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed) || parsed.length !== CAPACIDAD_PROGRAMAS) return null
-    if (!parsed.every(p => p && Array.isArray(p.pasos))) return null
+    if (!parsed.every(p => p && Array.isArray(p.pasos) && p.pasos.every(parsoPasoValido))) return null
     return parsed as Programa[]
   } catch {
     return null

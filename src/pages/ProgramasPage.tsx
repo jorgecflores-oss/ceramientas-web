@@ -7,8 +7,8 @@ import { STORAGE_KEYS } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
 import type { Programa, Paso } from '../types/horno'
 
-const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
-const tieneActivos = (prog: Programa) => prog.pasos.some(pasoActivo)
+const pasoActivo = (p: Paso) => Boolean(p) && (p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0)
+const tieneActivos = (prog: Programa) => Array.isArray(prog?.pasos) && prog.pasos.some(p => p != null && pasoActivo(p))
 
 function normalizarSignosRampa(pasos: Paso[]): Paso[] {
   return pasos.map((paso, i) => {

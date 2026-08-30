@@ -336,7 +336,16 @@ export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
     if (cached) {
       try {
         const parsed = JSON.parse(cached) as Programa[]
-        if (Array.isArray(parsed) && parsed.length === CAPACIDAD_ACTUAL) return parsed
+        if (
+          Array.isArray(parsed) &&
+          parsed.length === CAPACIDAD_ACTUAL &&
+          parsed.every(p => p && Array.isArray(p.pasos) && p.pasos.every(
+            (paso: unknown) => paso !== null && typeof paso === 'object' &&
+              typeof (paso as Record<string, unknown>).velocidad === 'number' &&
+              typeof (paso as Record<string, unknown>).temperatura === 'number' &&
+              typeof (paso as Record<string, unknown>).tiempo === 'number'
+          ))
+        ) return parsed
       } catch {}
     }
     throw e
