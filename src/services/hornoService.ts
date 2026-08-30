@@ -45,6 +45,9 @@ export async function getEstado(hornoId: string) {
 export async function getProgramas(hornoId: string): Promise<Programa[]> {
   const resp = await hornoRequest(hornoId, 'programas', 'GET')
   useHornoStore.getState().registrarRespuesta(hornoId, resp.via)
+  if (!Array.isArray(resp.data)) {
+    throw new Error(`Respuesta /programas inválida (${typeof resp.data}) — probable JSON malformado en firmware`)
+  }
   return resp.data as Programa[]
 }
 
@@ -245,7 +248,13 @@ async function hornoRequestInterno(
       }
       if (body && method !== 'GET') opts.body = body
       const resp = await fetch(`http://${ip}/${path}`, opts)
-      const data = await resp.json().catch(() => ({}))
+      let data: unknown
+      try {
+        data = await resp.json()
+      } catch {
+        if (!resp.ok) throw new FirmwareError(`HTTP ${resp.status}`, resp.status)
+        throw new Error(`HTTP 200 con JSON inválido en /${path}`)
+      }
       if (!resp.ok) {
         const firmwareError = (data as { error?: string }).error
         throw new FirmwareError(firmwareError ?? `HTTP ${resp.status}`, resp.status)
