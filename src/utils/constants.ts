@@ -6,7 +6,7 @@ export const HTTP_TIMEOUT = 5000
 export const AP_IP = '192.168.4.1'
 export const OTA_VERSION_URL = 'https://raw.githubusercontent.com/jorgecflores-oss/ceramientas-firmware/main/version.json'
 export const OTA_BIN_URL = (version: string) =>
-  `https://github.com/jorgecflores-oss/ceramientas-firmware/releases/download/v${version}/Controlador_ESP32_V3_5_0.ino.esp32.bin`
+  `https://github.com/jorgecflores-oss/ceramientas-firmware/releases/download/v${version}/firmware.bin`
 
 // VAPID público (generado 2026-07-15). Privado vive en Cloudflare Worker secrets.
 export const VAPID_PUBLIC_KEY = 'BGUC52Lo3tmFLwjQYhTRVSBOuF6YS6JqXCLtpZo_EOxYMlrtrX-pPZutglY_VAly6pg3sOmdVhZ_1BHVnMjQn4k'
