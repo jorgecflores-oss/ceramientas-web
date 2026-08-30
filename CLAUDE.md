@@ -19,7 +19,7 @@ Conecta ESP32 firmware v3.4.0+ vía MQTT WSS + HTTP LAN/AP.
 
 ## Reglas absolutas
 
-- Clauco edita, verifica build (`npm run build`) y commitea al terminar cada tarea.
+- Clauco edita, actualiza historial en este CLAUDE.md, verifica build (`npm run build`) y commitea al terminar cada tarea.
 - Jorge pushea a GitHub. Clauco no puede pushear (sin auth GitHub en el entorno).
 - Un commit por tarea completa — no commitear cada edit individual.
 - Español rioplatense código comentarios.
@@ -172,6 +172,7 @@ PWA debe funcionar 3 escenarios:
 - Feat (2026-08-13): acceso permanente al topic ntfy — ConfigPage muestra topic con botón Copiar; LoginPage: cada horno guardado expande ID completo + topic ntfy, ambos copiables
 - Fix (2026-08-14): texto "Temperatura actual:" en modal rampa rápida pasa a `text-white` (igual fix que modal corte de luz del 2026-08-13)
 - Feat (2026-08-14): recuperar snapshot al abrir con horno inactivo — HornoPage intenta cargar snapshot desde caché local; si no existe, hace fetch de la curva completa al firmware
+- Feat (2026-08-30): continuar post-corte de luz preserva curva histórica — historialTemps no se borra al rearrancar con `keepHistorial=true`; store agrega `continuarEpoch` para que `aplicarCurvaFirmware` use datos pre-corte como base al llegar el nuevo epoch del firmware; retry del comando "continuar" cada 8s × 3 (compensa ventanas de desconexión MQTT durante POSTs ntfy.sh)
 
 ## Notas arquitectura relevantes
 
