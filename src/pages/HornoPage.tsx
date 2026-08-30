@@ -419,7 +419,7 @@ export function HornoPage() {
       const prog: Programa = {
         nombre: meta.nombre,
         tipo: meta.idx,
-        pasos: meta.pasos.map(p => ({ velocidad: p.v / 10, temperatura: p.t, tiempo: p.d }))
+        pasos: meta.pasos.map(p => ({ velocidad: p.v, temperatura: p.t, tiempo: p.d }))
       }
       const puntos = calcularCurvaTeorica(prog.pasos, tempAncla, tAncla)
       setCurvaTeorica(prog, puntos, tAncla, tempAncla)
