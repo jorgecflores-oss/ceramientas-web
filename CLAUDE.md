@@ -175,6 +175,7 @@ PWA debe funcionar 3 escenarios:
 - Feat (2026-08-30): continuar post-corte de luz preserva curva histórica — historialTemps no se borra al rearrancar con `keepHistorial=true`; store agrega `continuarEpoch` para que `aplicarCurvaFirmware` use datos pre-corte como base al llegar el nuevo epoch del firmware; retry del comando "continuar" cada 8s × 3 (compensa ventanas de desconexión MQTT durante POSTs ntfy.sh)
 - Fix (2026-08-30): serializar requests MQTT por hornoId — `chainMqttRequest` con Promise-chain garantiza un único request en vuelo por horno; resuelve timeout GET /programas causado por el slot único `mt_reqPendiente` del firmware que solo procesa el último mensaje recibido cuando llegan varios en el mismo `mqttClient.loop()`
 - Feat (2026-08-30): curvaMeta retain — firmware publica `ceramientas/{id}/curvaMeta` (retained) con pasos RAM reales al iniciar proceso; webapp suscribe y usa esos pasos directamente en lugar de hacer GET /programas; permite curva correcta aunque tempFinal fue modificado desde el controlador físico antes de arrancar; se borra al terminar/detener/alarma
+- Feat (2026-08-30): botón "Reiniciar app" en ConfigPage — guarda hornoId+password de todos los hornos en sessionStorage, limpia localStorage, desregistra Service Workers, recarga; main.tsx restaura las credenciales antes de montar la app
 
 ## Notas arquitectura relevantes
 

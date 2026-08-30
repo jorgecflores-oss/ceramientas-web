@@ -38,6 +38,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [wifiStep, setWifiStep] = useState<WifiStep>(null)
   const [wifiUrl, setWifiUrl] = useState('')
   const [restaurando, setRestaurando] = useState(false)
+  const [reiniciando, setReiniciando] = useState(false)
 
   useEffect(() => {
     if (!horno?.hornoId) return
@@ -153,6 +154,30 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     if (!horno) return
     quitarHorno(horno.hornoId)
     setConfirmarDesvincular(false)
+  }
+
+  async function reiniciarApp() {
+    if (!confirm('¿Reiniciar la app?\n\nSe borran el caché y el Service Worker. Tus hornos se restauran automáticamente.')) return
+    setReiniciando(true)
+    try {
+      const listaRaw = localStorage.getItem('@ceramientas_hornos_lista')
+      const hornos = listaRaw ? JSON.parse(listaRaw) as { hornoId: string }[] : []
+      const passwords: Record<string, string> = {}
+      for (const h of hornos) {
+        const p = localStorage.getItem(`@ceramientas_pass_${h.hornoId}`)
+        if (p) passwords[h.hornoId] = p
+      }
+      sessionStorage.setItem('@ceramientas_restore', JSON.stringify({ hornos, passwords }))
+      localStorage.clear()
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map(r => r.unregister()))
+      }
+      location.reload()
+    } catch (e) {
+      setReiniciando(false)
+      alert('Error al reiniciar: ' + (e instanceof Error ? e.message : String(e)))
+    }
   }
 
   function cerrarWifi() {
@@ -459,12 +484,24 @@ export function ConfigPage({ onAgregarHorno }: Props) {
 
               <button
                 onClick={() => setConfirmarDesvincular(true)}
-                className="w-full flex items-center gap-4 py-3 hover:bg-red-950/10 rounded transition"
+                className="w-full flex items-center gap-4 py-3 border-b border-neutral-800 hover:bg-red-950/10 rounded transition"
               >
                 <span className="text-2xl">🔗</span>
                 <div className="flex-1 text-left">
                   <p className="text-red-400 text-sm font-semibold">Desvincular horno</p>
                   <p className="text-xs text-neutral-500 mt-0.5">Vuelve a aparecer si el controlador se reinicia</p>
+                </div>
+              </button>
+
+              <button
+                onClick={reiniciarApp}
+                disabled={reiniciando}
+                className={`w-full flex items-center gap-4 py-3 transition ${reiniciando ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-950/10 rounded'}`}
+              >
+                <span className="text-2xl">🔄</span>
+                <div className="flex-1 text-left">
+                  <p className="text-red-400 text-sm font-semibold">Reiniciar app</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">Borra el caché y recarga. Los hornos se restauran.</p>
                 </div>
               </button>
             </div>
