@@ -13,8 +13,9 @@ const _tsEstado = new Map<string, number>()
 
 let client: MqttClient | null = null
 let conectado = false
-const subsEstado = new Map<string, (data: EstadoMQTT) => void>()
-const subsNotif  = new Map<string, (data: NotifMQTT) => void>()
+const subsEstado     = new Map<string, (data: EstadoMQTT) => void>()
+const subsNotif      = new Map<string, (data: NotifMQTT) => void>()
+const subsCurvaMeta  = new Map<string, (payload: string | null) => void>()
 let descubrimientoHandler: ((topic: string) => void) | null = null
 
 export function iniciarMQTT() {
@@ -33,6 +34,7 @@ export function iniciarMQTT() {
     console.log('[MQTT] conectado')
     subsEstado.forEach((_, topic) => client?.subscribe(topic))
     subsNotif.forEach((_, topic) => client?.subscribe(topic))
+    subsCurvaMeta.forEach((_, topic) => client?.subscribe(topic))
     client?.subscribe('ceramientas/+/res', { qos: 1 })
   })
 
@@ -77,6 +79,11 @@ export function iniciarMQTT() {
     if (cbNotif) {
       try { cbNotif(JSON.parse(payload.toString()) as NotifMQTT) }
       catch (e) { console.error('[MQTT] parse notif error', e) }
+      return
+    }
+    const cbCurvaMeta = subsCurvaMeta.get(topic)
+    if (cbCurvaMeta) {
+      cbCurvaMeta(payload.length === 0 ? null : payload.toString())
     }
   })
 }
@@ -97,6 +104,16 @@ export function suscribirNotif(hornoId: string, cb: (data: NotifMQTT) => void) {
   if (client && conectado) client.subscribe(topic)
   return () => {
     subsNotif.delete(topic)
+    client?.unsubscribe(topic)
+  }
+}
+
+export function suscribirCurvaMeta(hornoId: string, cb: (payload: string | null) => void) {
+  const topic = `ceramientas/${hornoId}/curvaMeta`
+  subsCurvaMeta.set(topic, cb)
+  if (client && conectado) client.subscribe(topic)
+  return () => {
+    subsCurvaMeta.delete(topic)
     client?.unsubscribe(topic)
   }
 }

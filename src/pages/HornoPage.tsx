@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
-import { suscribirEstado, suscribirNotif, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
+import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
 import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
@@ -8,7 +8,7 @@ import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
 import { STORAGE_KEYS } from '../utils/constants'
-import type { PuntoCurva } from '../types/horno'
+import type { PuntoCurva, Programa } from '../types/horno'
 import { esProcesoActivo, esProgramaActivo } from '../types/horno'
 import { exportarInformeHorneada, exportarCurvaHorno } from '../utils/exportarInforme'
 
@@ -70,6 +70,9 @@ export function HornoPage() {
   const confirmarTermocuplaShownRef = useRef(false)
   const termocuplaEsperarRef = useRef(false)
   const toastIdRef           = useRef(0)
+  type CurvaMetaPaso = { v: number; t: number; d: number }
+  type CurvaMetaPayload = { nombre: string; idx: number; pasos: CurvaMetaPaso[] }
+  const curvaMetaRef = useRef<CurvaMetaPayload | null>(null)
 
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
   const [, setTick] = useState(0)
@@ -109,6 +112,20 @@ export function HornoPage() {
     if (!horno?.hornoId) return
     const key = `@ceramientas_ntfy_shown_${horno.hornoId}`
     if (!localStorage.getItem(key)) setModalNtfy(true)
+  }, [horno?.hornoId])
+
+  // curvaMeta: mensaje retenido del firmware con pasos RAM reales del programa activo
+  useEffect(() => {
+    if (!horno?.hornoId) return
+    const unsub = suscribirCurvaMeta(horno.hornoId, (raw) => {
+      if (!raw) { curvaMetaRef.current = null; return }
+      try {
+        curvaMetaRef.current = JSON.parse(raw) as CurvaMetaPayload
+        console.log('[CURVA_META] recibido:', curvaMetaRef.current.nombre, 'idx:', curvaMetaRef.current.idx)
+      } catch (e) { console.error('[CURVA_META] parse error', e) }
+    })
+    return unsub
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [horno?.hornoId])
 
   useEffect(() => {
@@ -394,6 +411,21 @@ export function HornoPage() {
       if (yaHayAncla) return
     }
 
+    // Si el firmware publicó curvaMeta, usar los pasos RAM reales directamente
+    // (incluye tempFinal modificado por el usuario antes de arrancar).
+    const aplicarDesdeMetaSiDisponible = (): boolean => {
+      const meta = curvaMetaRef.current
+      if (!meta) return false
+      const prog: Programa = {
+        nombre: meta.nombre,
+        tipo: meta.idx,
+        pasos: meta.pasos.map(p => ({ velocidad: p.v / 10, temperatura: p.t, tiempo: p.d }))
+      }
+      const puntos = calcularCurvaTeorica(prog.pasos, tempAncla, tAncla)
+      setCurvaTeorica(prog, puntos, tAncla, tempAncla)
+      return true
+    }
+
     const aplicarCurva = (progs: typeof programas) => {
       const match = matchPrograma(progs, etapaTotal, etapa, tempObj)
       if (!match) return
@@ -413,6 +445,11 @@ export function HornoPage() {
       }
     }
 
+    // Preferir curvaMeta: tiene los pasos RAM reales del firmware (tempFinal
+    // modificado por usuario antes de arrancar, sin necesidad de fetch).
+    if (aplicarDesdeMetaSiDisponible()) return
+
+    // Fallback: buscar en programas locales / fetch al firmware
     // Si el último ejecutado fue un programa custom (idx ≥ 4), buscarlo
     // directamente sin mezclar con predefinidos (que podrían tener igual
     // cantidad de pasos y temperatura objetivo y generar un falso positivo).
