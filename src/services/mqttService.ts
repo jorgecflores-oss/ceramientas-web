@@ -147,6 +147,19 @@ export function descubrirHornosMQTT(
   })
 }
 
+// Cola por hornoId: el firmware tiene un único slot mt_reqPendiente.
+// Si llegan múltiples requests en el mismo mqttClient.loop(), el callback
+// sobreescribe los datos de los anteriores → solo el último se procesa.
+// La cola garantiza que solo haya un request MQTT en vuelo por hornoId.
+const hornoReqChains = new Map<string, Promise<unknown>>()
+
+function chainMqttRequest<T>(hornoId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = hornoReqChains.get(hornoId) ?? Promise.resolve()
+  const next = prev.catch(() => {}).then(() => fn())
+  hornoReqChains.set(hornoId, next.catch(() => {}))
+  return next
+}
+
 export function mqttRequest(
   hornoId: string,
   path: string,
@@ -154,20 +167,24 @@ export function mqttRequest(
   body?: string,
   timeoutMs: number = 20000
 ): Promise<{ status: number; data: unknown }> {
-  return new Promise(async (resolve, reject) => {
-    const start = Date.now()
-    while (!estaConectado() && Date.now() - start < 5000) {
-      await new Promise(r => setTimeout(r, 200))
-    }
-    if (!estaConectado()) {
-      reject(new Error('MQTT no conectado'))
-      return
-    }
-    const auth = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
-    if (!auth) {
-      reject(new Error('Sin password guardada'))
-      return
-    }
+  return chainMqttRequest(hornoId, () => _mqttRequestDirect(hornoId, path, method, body, timeoutMs))
+}
+
+async function _mqttRequestDirect(
+  hornoId: string,
+  path: string,
+  method: 'GET' | 'POST' | 'DELETE',
+  body?: string,
+  timeoutMs: number = 20000
+): Promise<{ status: number; data: unknown }> {
+  const start = Date.now()
+  while (!estaConectado() && Date.now() - start < 5000) {
+    await new Promise(r => setTimeout(r, 200))
+  }
+  if (!estaConectado()) throw new Error('MQTT no conectado')
+  const auth = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
+  if (!auth) throw new Error('Sin password guardada')
+  return new Promise((resolve, reject) => {
     const reqId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
     const req: Record<string, string> = { reqId, auth, method, path }
     if (body) req.body = body
