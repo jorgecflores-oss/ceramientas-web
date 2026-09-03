@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP } from '../services/hornoService'
-import { OTA_BIN_URL } from '../utils/constants'
+import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP, fetchProgramasOnce } from '../services/hornoService'
+import { OTA_BIN_URL, STORAGE_KEYS } from '../utils/constants'
 import { publicarComando } from '../services/mqttService'
 import { AP_IP } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
@@ -19,6 +19,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const pass = useHornoStore(s => s.password)
   const quitarHorno = useHornoStore(s => s.quitarHorno)
   const setHorno = useHornoStore(s => s.setHorno)
+  const setProgramas = useHornoStore(s => s.setProgramas)
 
   const [potencia, setPotencia] = useState('')
   const [factura, setFactura] = useState('')
@@ -120,12 +121,25 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     if (!horno?.hornoId) return
     feedbackBoton()
     setRestaurando(true)
+    const hornoId = horno.hornoId
     try {
-      const ok = publicarComando(horno.hornoId, 'restaurar_predef')
+      const ok = publicarComando(hornoId, 'restaurar_predef')
       if (!ok) {
-        await postComando(horno.hornoId, 'restaurar_predef')
+        await postComando(hornoId, 'restaurar_predef')
       }
-      alert('Restaurado. Entrá a Programas para verlos.')
+      // Invalidar caché local antes de refetchear — evita que otros dispositivos
+      // sirvan nombres genéricos obsoletos si el fetch les falla
+      localStorage.removeItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId))
+      // Esperar que el firmware termine de escribir en EEPROM antes de leer
+      await new Promise(r => setTimeout(r, 2000))
+      try {
+        const progs = await fetchProgramasOnce(hornoId)
+        setProgramas(progs)
+      } catch {
+        // Si el refetch falla el usuario igual verá los nombres correctos
+        // al navegar a Programas (la caché ya fue limpiada)
+      }
+      alert('Predefinidos restaurados.')
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error restaurando programas predefinidos'
       alert(msg)
