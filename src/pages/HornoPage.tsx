@@ -217,7 +217,11 @@ export function HornoPage() {
 
   // Corte de luz detectado por campo cl del estado
   useEffect(() => {
-    if (!estado?.corteLuz) return
+    if (!estado?.corteLuz) {
+      // Otro dispositivo ya resolvió el corte — cerrar modal si estaba abierto
+      setModalCorteLuz(false)
+      return
+    }
     const now = Date.now()
     if (now - corteLuzCooldownRef.current < 30000) return
     corteLuzCooldownRef.current = now
