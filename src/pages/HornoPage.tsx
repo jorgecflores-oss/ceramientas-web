@@ -536,6 +536,9 @@ export function HornoPage() {
         if (actualPrograma) calcularYGuardarCurva(true)
         else iniciarSesionDirecta()
       } else {
+        // Limpiar curva vieja de localStorage antes del resync — evita mostrar la curva
+        // de una sesión/programa anterior mientras se cargan los datos reales del firmware
+        clearCurvaTeorica()
         if (hornoId) {
           const histActual = useHornoStore.getState().historialTemps[hornoId] ?? []
           if (histActual.length > 0) {

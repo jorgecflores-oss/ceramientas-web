@@ -162,6 +162,11 @@ const AP_CACHE = new Map<string, { ip: string; ts: number }>()
 const AP_TTL_MS = 60_000
 let _apProbeFailedAt = 0  // negativo-cache: no reintentar probe AP por 60s tras fallo
 
+// Cooldown HTTP por hornoId: si un request HTTP falló por red (no por error del firmware),
+// saltear directo a MQTT por 30s para no acumular 5s de timeout por iteración en datos móviles.
+const _httpFailedTs = new Map<string, number>()
+const HTTP_FAIL_COOLDOWN = 30_000
+
 // Lee IP solo de caché (sin probe AP) — para polling frecuente
 function resolverCachedIP(hornoId: string): string | null {
   const cached = AP_CACHE.get(hornoId)
@@ -236,7 +241,8 @@ async function hornoRequestInterno(
   const ip = await resolverIP(hornoId)
   const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
 
-  if (ip && password) {
+  const httpEnCooldown = Date.now() - (_httpFailedTs.get(hornoId) ?? 0) < HTTP_FAIL_COOLDOWN
+  if (ip && password && !httpEnCooldown) {
     try {
       const opts: RequestInit = {
         method,
@@ -260,10 +266,12 @@ async function hornoRequestInterno(
         throw new FirmwareError(firmwareError ?? `HTTP ${resp.status}`, resp.status)
       }
       cacheIP(hornoId, ip)
+      _httpFailedTs.delete(hornoId)
       return { status: resp.status, data, via: 'http' }
     } catch (e) {
       if (e instanceof FirmwareError) throw e
-      // Error de red/timeout: caer a MQTT
+      // Error de red/timeout: marcar cooldown y caer a MQTT
+      _httpFailedTs.set(hornoId, Date.now())
     }
   }
 
