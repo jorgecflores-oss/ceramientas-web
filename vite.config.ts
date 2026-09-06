@@ -18,7 +18,7 @@ export default defineConfig({
         name: 'Ceramientas',
         short_name: 'Ceramientas',
         description: 'Control remoto hornos cerámica',
-        theme_color: '#FF6B35',
+        theme_color: '#0A0A0A',
         background_color: '#0D0D0D',
         display: 'standalone',
         orientation: 'portrait',
