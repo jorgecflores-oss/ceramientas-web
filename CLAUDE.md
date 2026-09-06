@@ -176,6 +176,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-08-30): serializar requests MQTT por hornoId — `chainMqttRequest` con Promise-chain garantiza un único request en vuelo por horno; resuelve timeout GET /programas causado por el slot único `mt_reqPendiente` del firmware que solo procesa el último mensaje recibido cuando llegan varios en el mismo `mqttClient.loop()`
 - Feat (2026-08-30): curvaMeta retain — firmware publica `ceramientas/{id}/curvaMeta` (retained) con pasos RAM reales al iniciar proceso; webapp suscribe y usa esos pasos directamente en lugar de hacer GET /programas; permite curva correcta aunque tempFinal fue modificado desde el controlador físico antes de arrancar; se borra al terminar/detener/alarma
 - Feat (2026-08-30): botón "Reiniciar app" en ConfigPage — guarda hornoId+password de todos los hornos en sessionStorage, limpia localStorage, desregistra Service Workers, recarga; main.tsx restaura las credenciales antes de montar la app
+- Fix (2026-09-06): temperatura congelada en Chrome mobile — Chrome en Android puede suspender el WebSocket sin cerrarlo; el cliente MQTT reporta conectado pero los mensajes dejan de llegar. Timer de tick (2s) ahora detecta silencio MQTT >60s y dispara `fetchEstadoFresco` HTTP como fallback; si además `estaConectado()` es false, reconecta MQTT.
 
 ## Notas arquitectura relevantes
 
