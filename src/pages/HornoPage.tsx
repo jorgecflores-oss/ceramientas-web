@@ -70,6 +70,8 @@ export function HornoPage() {
   const confirmarTermocuplaShownRef = useRef(false)
   const termocuplaEsperarRef = useRef(false)
   const toastIdRef           = useRef(0)
+  const mountTimeRef         = useRef(Date.now())
+  const lastHttpFallbackRef  = useRef(0)
   type CurvaMetaPaso = { v: number; t: number; d: number }
   type CurvaMetaPayload = { nombre: string; idx: number; pasos: CurvaMetaPaso[] }
   const curvaMetaRef = useRef<CurvaMetaPayload | null>(null)
@@ -204,10 +206,32 @@ export function HornoPage() {
     return () => clearInterval(id)
   }, [tInicio, estado?.estado])
 
+  // Tick para re-renderizar LEDs + fallback HTTP cuando MQTT lleva >60s sin entregar.
+  // Chrome en Android puede "congelar" el WebSocket sin cerrarlo: el cliente MQTT
+  // sigue reportando conectado pero los mensajes dejan de llegar.
   useEffect(() => {
-    const id = setInterval(() => setTick(n => n + 1), 2000)
+    if (!horno?.hornoId) return
+    const hornoId = horno.hornoId
+    mountTimeRef.current = Date.now()
+    lastHttpFallbackRef.current = 0
+    const id = setInterval(() => {
+      setTick(n => n + 1)
+      const now = Date.now()
+      const lastMqtt = useHornoStore.getState().ultimoRespuestaAt[hornoId] ?? 0
+      // Si nunca hubo MQTT en esta sesión, contar desde el mount
+      const ref = lastMqtt > 0 ? lastMqtt : mountTimeRef.current
+      if (now - ref > 60_000 && now - lastHttpFallbackRef.current > 20_000) {
+        lastHttpFallbackRef.current = now
+        fetchEstadoFresco(hornoId)
+        // Reconectar MQTT solo si hubo conexión previa (evita reintentos en modo AP)
+        if (lastMqtt > 0 && !estaConectado()) {
+          detenerMQTT()
+          iniciarMQTT()
+        }
+      }
+    }, 2000)
     return () => clearInterval(id)
-  }, [])
+  }, [horno?.hornoId, fetchEstadoFresco])
 
   const mostrarToast = useCallback((msg: string, tipo: 'info' | 'warn' | 'error' = 'info') => {
     const id = ++toastIdRef.current
