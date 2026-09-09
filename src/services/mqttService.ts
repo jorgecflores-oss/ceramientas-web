@@ -13,6 +13,7 @@ const _tsEstado = new Map<string, number>()
 
 let client: MqttClient | null = null
 let conectado = false
+let _lastMessageTs = 0  // timestamp del último mensaje recibido (cualquier topic)
 const subsEstado     = new Map<string, (data: EstadoMQTT) => void>()
 const subsNotif      = new Map<string, (data: NotifMQTT) => void>()
 const subsCurvaMeta  = new Map<string, (payload: string | null) => void>()
@@ -48,6 +49,7 @@ export function iniciarMQTT() {
   })
 
   client.on('message', (topic, payload) => {
+    _lastMessageTs = Date.now()
     if (descubrimientoHandler) descubrimientoHandler(topic)
     if (topic.endsWith('/res')) {
       if (payload.length === 0) return
@@ -194,8 +196,17 @@ async function _mqttRequestDirect(
   body?: string,
   timeoutMs: number = 20000
 ): Promise<{ status: number; data: unknown }> {
+  // Android puede suspender el WebSocket sin cerrarlo (congelado).
+  // Si MQTT reporta conectado pero no llegó ningún mensaje en >60s, forzar reconexión.
+  let reconectado = false
+  if (estaConectado() && _lastMessageTs > 0 && Date.now() - _lastMessageTs > 60_000) {
+    detenerMQTT()
+    iniciarMQTT()
+    reconectado = true
+  }
   const start = Date.now()
-  while (!estaConectado() && Date.now() - start < 5000) {
+  const limiteEspera = reconectado ? 10_000 : 5_000
+  while (!estaConectado() && Date.now() - start < limiteEspera) {
     await new Promise(r => setTimeout(r, 200))
   }
   if (!estaConectado()) throw new Error('MQTT no conectado')

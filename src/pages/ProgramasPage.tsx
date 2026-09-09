@@ -60,6 +60,7 @@ export function ProgramasPage() {
   const setProgramas = useHornoStore(s => s.setProgramas)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
+  const [reintento, setReintento] = useState(0)
 
   // Confirmación borrar
   const [confirmarBorrar, setConfirmarBorrar] = useState<number | null>(null)
@@ -76,11 +77,12 @@ export function ProgramasPage() {
   useEffect(() => {
     if (!horno?.hornoId) return
     setCargando(true)
+    setError('')
     fetchProgramasOnce(horno.hornoId)
       .then(p => setProgramas(p))
-      .catch(e => setError(String(e)))
+      .catch(() => setError('No se pudieron cargar los programas. Verificá la conexión con el horno.'))
       .finally(() => setCargando(false))
-  }, [horno?.hornoId, setProgramas])
+  }, [horno?.hornoId, setProgramas, reintento])
 
   function slotLibre(): number | null {
     for (let i = 4; i <= 43; i++) {
@@ -325,7 +327,18 @@ export function ProgramasPage() {
         <SelectorHorno />
 
         {cargando && <p className="text-center text-neutral-500 py-8">Cargando...</p>}
-        {error && <p className="text-center text-red-400 py-4">{error}</p>}
+        {error && (
+          <div className="text-center py-4">
+            <p className="text-red-400 text-sm mb-3">{error}</p>
+            <button
+              onClick={() => setReintento(n => n + 1)}
+              disabled={cargando}
+              className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 rounded-lg text-sm transition"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
         {!cargando && programasVisibles.length === 0 && (
           <p className="text-center text-neutral-500 py-8">Sin programas</p>
         )}
