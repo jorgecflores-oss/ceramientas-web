@@ -179,6 +179,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-09-06): temperatura congelada en Chrome mobile — Chrome en Android puede suspender el WebSocket sin cerrarlo; el cliente MQTT reporta conectado pero los mensajes dejan de llegar. Timer de tick (2s) ahora detecta silencio MQTT >60s y dispara `fetchEstadoFresco` HTTP como fallback; si además `estaConectado()` es false, reconecta MQTT.
 - Fix (2026-09-09): WebSocket congelado al cargar programas (Galaxy A12 Android 13) — `_lastMessageTs` trackea timestamp del último mensaje recibido en mqttService; `_mqttRequestDirect` detecta silencio >60s con WS aparentemente vivo y fuerza reconexión antes de publicar (limiteEspera 10s tras reconexión). ProgramasPage: error más claro + botón Reintentar.
 - Fix (2026-09-09): GET /programas falla por buffer MQTT insuficiente en ESP32 — `fetchProgramasOnce` llama `refreshIPCache` (/info vía MQTT, respuesta pequeña) antes del fetch para descubrir IP y preferir HTTP (sin límite de buffer); segundo intento HTTP directo bypaseando cooldown `_httpFailedTs`; timeout MQTT de `getProgramas` reducido a 8s; `hornoRequest` acepta `mqttTimeoutMs` opcional.
+- Fix (2026-09-09): confirm antes de ejecutar programa custom si re-POST falla sin red local — protege el caso donde EEPROM fue reseteada desde la última save HTTP exitosa.
 
 ## Notas arquitectura relevantes
 
