@@ -43,7 +43,9 @@ export async function getEstado(hornoId: string) {
 }
 
 export async function getProgramas(hornoId: string): Promise<Programa[]> {
-  const resp = await hornoRequest(hornoId, 'programas', 'GET')
+  // Timeout MQTT acortado a 8s: si el buffer del ESP32 no alcanza para 44 entradas,
+  // la respuesta nunca llega — fallar rápido en vez de esperar 20s.
+  const resp = await hornoRequest(hornoId, 'programas', 'GET', undefined, 8000)
   useHornoStore.getState().registrarRespuesta(hornoId, resp.via)
   if (!Array.isArray(resp.data)) {
     throw new Error(`Respuesta /programas inválida (${typeof resp.data}) — probable JSON malformado en firmware`)
@@ -236,7 +238,8 @@ async function hornoRequestInterno(
   hornoId: string,
   path: string,
   method: 'GET' | 'POST' | 'DELETE',
-  body?: string
+  body?: string,
+  mqttTimeoutMs?: number
 ): Promise<{ status: number; data: unknown; via: 'http' | 'mqtt' }> {
   const ip = await resolverIP(hornoId)
   const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
@@ -275,7 +278,7 @@ async function hornoRequestInterno(
     }
   }
 
-  const resultado = await mqttRequest(hornoId, path, method, body)
+  const resultado = await mqttRequest(hornoId, path, method, body, mqttTimeoutMs)
   if (resultado.status >= 400) {
     const errData = resultado.data as { error?: string }
     throw new FirmwareError(errData?.error ?? `Error ${resultado.status}`, resultado.status)
@@ -287,14 +290,15 @@ export async function hornoRequest(
   hornoId: string,
   path: string,
   method: 'GET' | 'POST' | 'DELETE',
-  body?: string
+  body?: string,
+  mqttTimeoutMs?: number
 ): Promise<{ status: number; data: unknown; via: 'http' | 'mqtt' }> {
   try {
-    return await hornoRequestInterno(hornoId, path, method, body)
+    return await hornoRequestInterno(hornoId, path, method, body, mqttTimeoutMs)
   } catch (e) {
     if (e instanceof FirmwareError && e.status === 401) {
       const sanado = await autoSanarPassword(hornoId)
-      if (sanado) return await hornoRequestInterno(hornoId, path, method, body)
+      if (sanado) return await hornoRequestInterno(hornoId, path, method, body, mqttTimeoutMs)
     }
     throw e
   }
@@ -344,11 +348,37 @@ export async function refreshIPCache(hornoId: string): Promise<void> {
 const CAPACIDAD_ACTUAL = 44
 
 export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
+  // GET /programas devuelve 44 entradas — puede exceder el buffer MQTT del firmware.
+  // Si no hay IP en caché, descubrirla vía /info (respuesta pequeña) para preferir HTTP.
+  if (!getCachedIP(hornoId)) {
+    await refreshIPCache(hornoId).catch(() => {})
+  }
+
   try {
     const programas = await getProgramas(hornoId)
     localStorage.setItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId), JSON.stringify(programas))
     return programas
   } catch (e) {
+    // Segundo intento: HTTP directo con la IP cacheada, bypaseando el cooldown _httpFailedTs.
+    // Necesario cuando MQTT falló por respuesta grande y _httpFailedTs bloqueó el primer HTTP.
+    const ip = getCachedIP(hornoId)
+    const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
+    if (ip && password) {
+      try {
+        const resp = await fetchTimeout(`http://${ip}/programas`, {
+          headers: { 'Content-Type': 'application/json', 'X-Auth': password },
+        })
+        if (resp.ok) {
+          const data = await resp.json() as Programa[]
+          if (Array.isArray(data)) {
+            localStorage.setItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId), JSON.stringify(data))
+            return data
+          }
+        }
+      } catch {}
+    }
+
+    // Caer a caché local
     const cached = localStorage.getItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId))
     if (cached) {
       try {
