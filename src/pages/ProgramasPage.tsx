@@ -110,7 +110,16 @@ export function ProgramasPage() {
       try {
         await postPrograma(horno.hornoId, idx, { nombre: p.nombre, pasos: p.pasos })
       } catch {
-        // Si falla, ejecutar igual — el usuario ya guardó antes
+        // Sin acceso directo al horno (datos móviles o sin red local), el firmware no puede
+        // recibir los pasos actualizados. Si hubo un reset de EEPROM desde la última vez que
+        // se guardó por HTTP, el horno podría ejecutar datos incorrectos.
+        const continuar = window.confirm(
+          `No se pudo confirmar el programa en el horno (sin acceso a la red local).\n\n` +
+          `Si el horno fue reiniciado o actualizado desde la última vez que guardaste, ` +
+          `podría ejecutar una versión anterior del programa.\n\n` +
+          `¿Continuar igual?`
+        )
+        if (!continuar) return
       }
     }
     const ok = publicarComando(horno.hornoId, `ejecutar:${idx}`)
