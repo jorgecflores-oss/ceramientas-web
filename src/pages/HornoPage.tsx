@@ -467,9 +467,11 @@ export function HornoPage() {
     const aplicarDesdeMetaSiDisponible = (): boolean => {
       const meta = curvaMetaRef.current
       if (!meta) return false
+      const ultimoPaso = meta.pasos[meta.pasos.length - 1]
       const prog: Programa = {
         nombre: meta.nombre,
         tipo: meta.idx,
+        tempFinal: ultimoPaso ? ultimoPaso.t : undefined,
         pasos: meta.pasos.map(p => ({ velocidad: p.v, temperatura: p.t, tiempo: p.d }))
       }
       const puntos = calcularCurvaTeorica(prog.pasos, tempAncla, tAncla)
