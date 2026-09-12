@@ -182,6 +182,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-09-09): confirm antes de ejecutar programa custom si re-POST falla sin red local — protege el caso donde EEPROM fue reseteada desde la última save HTTP exitosa.
 - Fix (2026-09-12): anclar T0 curva real con epoch del firmware (hist_timestamp_inicio, Unix real) — `aplicarCurvaFirmware` y `resincronizarCurvaReal` usan `resp.epoch * 1000` cuando `epoch > 1700000000`; elimina corrimiento del cero entre dispositivos que se conectan en distintos momentos; fallback a heurística previa cuando NTP no está sincronizado.
 - Fix (2026-09-12): `aplicarDesdeMetaSiDisponible` completa `tempFinal` en el Programa armado desde curvaMeta — usa `ultimoPaso.t` del payload retenido del firmware; necesario para que `guardarSnapshot` tenga tempFinal correcto al terminar el proceso.
+- Fix (2026-09-12): ancla curva teórica al reconectar usa epoch real del firmware — `calcularYGuardarCurva` rama !esNuevo y rama esNuevo&&!keepHistorial leen `tIniciosMap[hornoId]` tras `resincronizarCurvaReal` (que ya corrigió el valor con el epoch); elimina corrimiento entre curva real y teórica en reconexión mid-process.
 
 ## Notas arquitectura relevantes
 

@@ -456,6 +456,11 @@ export function HornoPage() {
         tempAncla = s.tempIniciosMap[hornoId]!
       } else if (primerTemp !== null) {
         tempAncla = primerTemp
+        // resincronizarCurvaReal ya corrigió tIniciosMap con el epoch real
+        // del firmware (mismo fix que ancla la curva real) — usar ese valor
+        // también para la teórica, no la heurística tCapture-procesoMs de arriba.
+        const anclaCorregida = useHornoStore.getState().tIniciosMap[hornoId]
+        if (anclaCorregida != null) tAncla = anclaCorregida
       } else {
         return
       }
@@ -494,7 +499,11 @@ export function HornoPage() {
       useHornoStore.getState().limpiarSnapshot(hornoId)
       if (!keepHistorial) {
         const primerTempReal = await resincronizarCurvaReal(hornoId, tAncla)
-        if (primerTempReal !== null) tempAncla = primerTempReal
+        if (primerTempReal !== null) {
+          tempAncla = primerTempReal
+          const anclaCorregida = useHornoStore.getState().tIniciosMap[hornoId]
+          if (anclaCorregida != null) tAncla = anclaCorregida
+        }
       }
     }
 
