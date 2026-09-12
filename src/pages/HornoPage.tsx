@@ -384,7 +384,8 @@ export function HornoPage() {
         if (curva.pts.length === 0 || desde >= totalBuffer) break
       }
       if (todos.length) {
-        useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, tAncla, todos)
+        const anclaReal = epochBuffer > 1700000000 ? epochBuffer * 1000 : tAncla
+        useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, anclaReal, todos)
         return todos[0].t
       }
     } catch (e) {

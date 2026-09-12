@@ -401,12 +401,16 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       set(s => ({ continuarEpoch: { ...s.continuarEpoch, [id]: false } }))
     }
 
-    // Post corte de luz: el nuevo epoch arrancó en T_continue, no en T_start.
-    // Los minutos del firmware son relativos al reinicio del proceso, no al arranque original.
-    // Se calcula T_continue desde el tiempo actual para que los puntos post-corte
-    // queden correctamente ubicados después de los puntos pre-corte en el gráfico.
-    let t0 = get().tIniciosMap[id] ?? Date.now()
-    if (esNuevoEpoch && esContinuar) {
+    // Ancla real: preferir epoch del firmware (hist_timestamp_inicio, Unix real)
+    // sobre heurísticas de reloj del cliente. Mismo valor para cualquier dispositivo,
+    // sin importar cuándo se conectó — corrige corrimiento del cero entre dispositivos.
+    // Umbral 1700000000 (~nov 2023): un millis() que lo cruce necesitaría >2 años
+    // de uptime sin reboot, descarta falso positivo en modo Conexión Directa.
+    const epochValido = resp.epoch > 1700000000
+    let t0 = epochValido ? resp.epoch * 1000 : (get().tIniciosMap[id] ?? Date.now())
+    // Post corte de luz sin epoch válido (NTP no sincronizado aún al reiniciar):
+    // fallback a heurística previa — T_continue estimado desde tiempo actual.
+    if (!epochValido && esNuevoEpoch && esContinuar) {
       const lastM = resp.pts.length > 0 ? resp.pts[resp.pts.length - 1].m : 0
       t0 = Date.now() - lastM * 60000
     }
