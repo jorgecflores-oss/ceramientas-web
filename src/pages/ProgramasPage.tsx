@@ -103,25 +103,6 @@ export function ProgramasPage() {
     if (!horno) return
     feedbackBoton()
     localStorage.setItem(STORAGE_KEYS.ULTIMO_PROG(horno.hornoId), String(idx))
-    // Programas custom: re-enviar pasos al firmware antes de ejecutar para garantizar
-    // que la EEPROM tiene los datos actuales (la escritura puede tener lag).
-    if (idx >= 4 && programas[idx]) {
-      const p = programas[idx]
-      try {
-        await postPrograma(horno.hornoId, idx, { nombre: p.nombre, pasos: p.pasos })
-      } catch {
-        // Sin acceso directo al horno (datos móviles o sin red local), el firmware no puede
-        // recibir los pasos actualizados. Si hubo un reset de EEPROM desde la última vez que
-        // se guardó por HTTP, el horno podría ejecutar datos incorrectos.
-        const continuar = window.confirm(
-          `No se pudo confirmar el programa en el horno (sin acceso a la red local).\n\n` +
-          `Si el horno fue reiniciado o actualizado desde la última vez que guardaste, ` +
-          `podría ejecutar una versión anterior del programa.\n\n` +
-          `¿Continuar igual?`
-        )
-        if (!continuar) return
-      }
-    }
     const ok = publicarComando(horno.hornoId, `ejecutar:${idx}`)
     if (!ok) {
       try {

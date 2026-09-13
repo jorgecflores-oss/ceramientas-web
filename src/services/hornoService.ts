@@ -347,6 +347,32 @@ export async function refreshIPCache(hornoId: string): Promise<void> {
 
 const CAPACIDAD_ACTUAL = 44
 
+const _revalidando = new Set<string>()
+
+function revalidarProgramasEnBackground(hornoId: string): void {
+  if (_revalidando.has(hornoId)) return
+  _revalidando.add(hornoId)
+  setTimeout(async () => {
+    try {
+      const ip = getCachedIP(hornoId)
+      const password = localStorage.getItem(STORAGE_KEYS.PASS(hornoId))
+      if (!ip || !password) return
+      const resp = await fetchTimeout(`http://${ip}/programas`, {
+        headers: { 'Content-Type': 'application/json', 'X-Auth': password },
+      })
+      if (!resp.ok) return
+      const data = await resp.json() as Programa[]
+      if (!Array.isArray(data) || data.length !== CAPACIDAD_ACTUAL) return
+      localStorage.setItem(STORAGE_KEYS.PROGRAMAS_CACHE(hornoId), JSON.stringify(data))
+      useHornoStore.getState().setProgramas(data)
+    } catch {
+      // silencioso — revalidación best-effort
+    } finally {
+      _revalidando.delete(hornoId)
+    }
+  }, 3000)
+}
+
 export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
   // GET /programas devuelve 44 entradas — puede exceder el buffer MQTT del firmware.
   // Si no hay IP en caché, descubrirla vía /info (respuesta pequeña) para preferir HTTP.
@@ -392,7 +418,10 @@ export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
               typeof (paso as Record<string, unknown>).temperatura === 'number' &&
               typeof (paso as Record<string, unknown>).tiempo === 'number'
           ))
-        ) return parsed
+        ) {
+          revalidarProgramasEnBackground(hornoId)
+          return parsed
+        }
       } catch {}
     }
     throw e
