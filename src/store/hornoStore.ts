@@ -354,10 +354,9 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     if (!id) return
     const now = Date.now()
     const prev = get().historialTemps[id] ?? []
-    const t0 = get().tIniciosMap[id] ?? prev[0]?.t ?? now
     let nuevo = [...prev, { t: now, temp }]
     if (nuevo.length > MAX_HISTORIAL) {
-      nuevo = downsamplePorBuckets(nuevo, t0, now, MAX_HISTORIAL)
+      nuevo = downsamplePorBuckets(nuevo, nuevo[0].t, now, MAX_HISTORIAL)
     }
     const historialTemps = { ...get().historialTemps, [id]: nuevo }
     set({ historialTemps, historialTemp: nuevo })
