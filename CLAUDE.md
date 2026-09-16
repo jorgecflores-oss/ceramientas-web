@@ -183,6 +183,8 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-09-12): anclar T0 curva real con epoch del firmware (hist_timestamp_inicio, Unix real) — `aplicarCurvaFirmware` y `resincronizarCurvaReal` usan `resp.epoch * 1000` cuando `epoch > 1700000000`; elimina corrimiento del cero entre dispositivos que se conectan en distintos momentos; fallback a heurística previa cuando NTP no está sincronizado.
 - Fix (2026-09-12): `aplicarDesdeMetaSiDisponible` completa `tempFinal` en el Programa armado desde curvaMeta — usa `ultimoPaso.t` del payload retenido del firmware; necesario para que `guardarSnapshot` tenga tempFinal correcto al terminar el proceso.
 - Fix (2026-09-12): ancla curva teórica al reconectar usa epoch real del firmware — `calcularYGuardarCurva` rama !esNuevo y rama esNuevo&&!keepHistorial leen `tIniciosMap[hornoId]` tras `resincronizarCurvaReal` (que ya corrigió el valor con el epoch); elimina corrimiento entre curva real y teórica en reconexión mid-process.
+- Feat (2026-09-15): tramo reconstruido (naranja punteado) en CurvaGrafico — segmento teórico previo al primer punto real disponible; visible tras microcortes o cuando la app estaba cerrada al arrancar la horneada; `reconstruidoPath` useMemo filtra `teoricoEf` por `t <= primerRealT` con punto de cierre interpolado; se dibuja antes que el real sólido en el SVG.
+- Fix (2026-09-15): `calcularYGuardarCurva` — rama `esNuevo=false` sin ancla cacheada usa `curvaMeta.tempInicio` (temperatura al arranque real, NVS firmware) para `tempAncla` en lugar del primer punto del buffer actual; fallback a heurística `tCapture - procesoMs` si resync falla pero curvaMeta tiene `tempInicio`; tipo `CurvaMetaPayload` agrega `tempInicio?: number`.
 
 ## Notas arquitectura relevantes
 

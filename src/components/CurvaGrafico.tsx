@@ -354,6 +354,26 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     return teoricoEf!.map((p, i) => `${i === 0 ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`).join(' ')
   }, [hayTeoricoEf, teoricoEf, tMin, tMax, yMin, yMax, svgW])
 
+  // Tramo reconstruido: segmento teórico anterior al primer punto real disponible.
+  // Se muestra solo cuando hay datos reales y la curva teórica comienza antes que
+  // el primer punto real (microcorte o app cerrada al arrancar la horneada).
+  const reconstruidoPath = useMemo(() => {
+    if (!hayTeoricoEf || puntosEfFilt.length === 0) return ''
+    const primerRealT = puntosEfFilt[0].t
+    const ptsFiltrados = teoricoEf!.filter(p => p.t <= primerRealT)
+    // Agregar punto de cierre exactamente en primerRealT para empalmar con la curva real
+    const ultimo = ptsFiltrados[ptsFiltrados.length - 1]
+    const ptsConCierre = (ultimo && ultimo.t < primerRealT)
+      ? [...ptsFiltrados, { t: primerRealT, temp: interpolarTemp(teoricoEf!, primerRealT) }]
+      : ptsFiltrados
+    if (ptsConCierre.length < 2) return ''
+    const pw = Math.max(1, svgW - PAD_LEFT - PAD_RIGHT)
+    const ph = Math.max(1, SVG_H - PAD_TOP - PAD_BOTTOM)
+    const lxp = (t: number) => PAD_LEFT + ((t - tMin) / (tMax - tMin)) * pw
+    const lyp = (temp: number) => PAD_TOP + (1 - (temp - yMin) / (yMax - yMin)) * ph
+    return ptsConCierre.map((p, i) => `${i === 0 ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`).join(' ')
+  }, [hayTeoricoEf, teoricoEf, puntosEfFilt, tMin, tMax, yMin, yMax, svgW])
+
   // Ticks eje Y: en vista completa, solo nodos teóricos (como antes del zoom).
   // Con zoom activo, grilla completa de valores redondos para leer y comparar desvíos.
   const yTicks = useMemo(() => {
@@ -522,6 +542,11 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
                     stroke="#64B5F6" strokeWidth={1} fill="#1a1a1a" />
                 )
               })}
+
+              {reconstruidoPath && (
+                <path d={reconstruidoPath} stroke="#FF6B35" strokeWidth={1.5} strokeDasharray="5,4"
+                  fill="none" clipPath={`url(#${clipId})`} />
+              )}
 
               {realPath && (
                 <path d={realPath} stroke="#FF6B35" strokeWidth={2}

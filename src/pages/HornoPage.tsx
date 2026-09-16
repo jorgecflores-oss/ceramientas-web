@@ -73,7 +73,7 @@ export function HornoPage() {
   const mountTimeRef         = useRef(Date.now())
   const lastHttpFallbackRef  = useRef(0)
   type CurvaMetaPaso = { v: number; t: number; d: number }
-  type CurvaMetaPayload = { nombre: string; idx: number; pasos: CurvaMetaPaso[] }
+  type CurvaMetaPayload = { nombre: string; idx: number; tempInicio?: number; pasos: CurvaMetaPaso[] }
   const curvaMetaRef = useRef<CurvaMetaPayload | null>(null)
 
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
@@ -455,14 +455,24 @@ export function HornoPage() {
         tAncla = s.tIniciosMap[hornoId]!
         tempAncla = s.tempIniciosMap[hornoId]!
       } else if (primerTemp !== null) {
-        tempAncla = primerTemp
-        // resincronizarCurvaReal ya corrigió tIniciosMap con el epoch real
-        // del firmware (mismo fix que ancla la curva real) — usar ese valor
-        // también para la teórica, no la heurística tCapture-procesoMs de arriba.
+        // Preferir curvaMeta.tempInicio (temperatura al arranque real de la horneada,
+        // persistida en NVS por el firmware) sobre primerTemp (primer punto del buffer
+        // actual, que puede ser post-reboot y no reflejar el inicio de la horneada).
+        const metaAncla = curvaMetaRef.current
+        tempAncla = (metaAncla?.tempInicio != null) ? metaAncla.tempInicio : primerTemp
         const anclaCorregida = useHornoStore.getState().tIniciosMap[hornoId]
         if (anclaCorregida != null) tAncla = anclaCorregida
       } else {
-        return
+        // resincronizarCurvaReal sin datos: si curvaMeta tiene tempInicio, construir
+        // ancla con tiempo heurístico — mejor que no mostrar curva teórica.
+        const metaAncla = curvaMetaRef.current
+        if (metaAncla?.tempInicio != null) {
+          tempAncla = metaAncla.tempInicio
+          const anclaCorregida = useHornoStore.getState().tIniciosMap[hornoId]
+          if (anclaCorregida != null) tAncla = anclaCorregida
+        } else {
+          return
+        }
       }
       if (yaHayAncla) return
     }
