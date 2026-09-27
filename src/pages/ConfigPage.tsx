@@ -6,6 +6,17 @@ import { OTA_BIN_URL, STORAGE_KEYS } from '../utils/constants'
 import { publicarComando } from '../services/mqttService'
 import { AP_IP } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
+import type { LimitesConfig } from '../types/horno'
+
+// Límites de firmware anterior a v3.6.0 (no manda "limites" en /config).
+// Firmware viejo rechaza valores fuera de estos rangos, así que la app no debe ofrecerlos.
+const LIMITES_LEGACY: LimitesConfig = {
+  potMin: 2000, potMax: 8000,
+  factMin: 20000, factMax: 200000,
+  consMin: 200, consMax: 2000,
+}
+
+const fmt = (n: number) => n.toLocaleString('es-AR')
 
 type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
 type WifiStep = null | 'detectando' | 'listo' | 'instrucciones'
@@ -24,6 +35,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [potencia, setPotencia] = useState('')
   const [factura, setFactura] = useState('')
   const [consumo, setConsumo] = useState('')
+  const [limites, setLimites] = useState<LimitesConfig>(LIMITES_LEGACY)
   const [versionFw, setVersionFw] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
   const [confirmarDesvincular, setConfirmarDesvincular] = useState(false)
@@ -52,6 +64,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
         setPotencia(String(cfg.potencia ?? 6000))
         setFactura(String(cfg.factura ?? 71000))
         setConsumo(String(cfg.consumo ?? 520))
+        setLimites(cfg.limites ?? LIMITES_LEGACY)
         setVersionFw(cfg.versionFirmware ?? null)
       })
       .catch(e => console.error('[getConfig]', e))
@@ -68,16 +81,17 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     const facV = Number(factura)
     const conV = Number(consumo)
 
-    if (isNaN(potV) || potV < 2000 || potV > 8000) {
-      alert('Potencia debe estar entre 2000 y 8000 W')
+    const L = limites
+    if (isNaN(potV) || potV < L.potMin || potV > L.potMax) {
+      alert(`Potencia debe estar entre ${fmt(L.potMin)} y ${fmt(L.potMax)} W`)
       return
     }
-    if (isNaN(facV) || facV < 20000 || facV > 200000) {
-      alert('Factura debe estar entre $20.000 y $200.000')
+    if (isNaN(facV) || facV < L.factMin || facV > L.factMax) {
+      alert(`Factura debe estar entre $${fmt(L.factMin)} y $${fmt(L.factMax)}`)
       return
     }
-    if (isNaN(conV) || conV < 200 || conV > 2000) {
-      alert('Consumo debe estar entre 200 y 2000 kWh/mes')
+    if (isNaN(conV) || conV < L.consMin || conV > L.consMax) {
+      alert(`Consumo debe estar entre ${fmt(L.consMin)} y ${fmt(L.consMax)} kWh/mes`)
       return
     }
 
@@ -388,7 +402,10 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                     type="number"
                     value={potencia}
                     onChange={e => setPotencia(e.target.value)}
-                    className="w-24 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded text-white text-right focus:border-orange-500 focus:outline-none"
+                    min={limites.potMin}
+                    max={limites.potMax}
+                    placeholder={`${limites.potMin}–${limites.potMax}`}
+                    className="w-28 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded text-white text-right focus:border-orange-500 focus:outline-none"
                   />
                   <span className="text-neutral-500 text-sm w-16">W</span>
                 </div>
@@ -401,7 +418,10 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                     type="number"
                     value={factura}
                     onChange={e => setFactura(e.target.value)}
-                    className="w-24 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded text-white text-right focus:border-orange-500 focus:outline-none"
+                    min={limites.factMin}
+                    max={limites.factMax}
+                    placeholder={`${limites.factMin}–${limites.factMax}`}
+                    className="w-28 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded text-white text-right focus:border-orange-500 focus:outline-none"
                   />
                   <span className="text-neutral-500 text-sm w-16">$/mes</span>
                 </div>
@@ -414,7 +434,10 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                     type="number"
                     value={consumo}
                     onChange={e => setConsumo(e.target.value)}
-                    className="w-24 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded text-white text-right focus:border-orange-500 focus:outline-none"
+                    min={limites.consMin}
+                    max={limites.consMax}
+                    placeholder={`${limites.consMin}–${limites.consMax}`}
+                    className="w-28 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded text-white text-right focus:border-orange-500 focus:outline-none"
                   />
                   <span className="text-neutral-500 text-sm w-16">kWh/mes</span>
                 </div>

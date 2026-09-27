@@ -81,12 +81,22 @@ export interface InfoHorno {
   mac: string
 }
 
+export interface LimitesConfig {
+  potMin: number
+  potMax: number
+  factMin: number
+  factMax: number
+  consMin: number
+  consMax: number
+}
+
 export interface ConfigHorno {
   nombre?: string
   potencia?: number
   factura?: number
   consumo?: number
   versionFirmware?: string
+  limites?: LimitesConfig  // v3.6.0+ — ausente en firmware viejo
 }
 
 export interface Horneada {
