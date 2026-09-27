@@ -31,6 +31,13 @@ export interface Horno {
   potencia?: number
 }
 
+export interface EstadoZona {
+  id: number
+  temp: number
+  rele: boolean
+  online: boolean
+}
+
 export interface EstadoMQTT {
   temperatura: number
   tempObj: number
@@ -46,6 +53,7 @@ export interface EstadoMQTT {
   termocuplaAbierta: boolean
   termocuplaConfirmada: boolean
   estado: EstadoHorno
+  zonas?: EstadoZona[]
 }
 
 export interface Paso {

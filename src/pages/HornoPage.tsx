@@ -162,6 +162,7 @@ export function HornoPage() {
           termocuplaAbierta: data.tc ?? data.termocuplaAbierta ?? false,
           termocuplaConfirmada: data.tcc ?? data.termocuplaConfirmada ?? false,
           estado: data.e ?? data.estado ?? 'idle',
+          zonas: data.zonas ?? undefined,
         })
       })
       .catch(e => console.error('[fetchEstadoFresco]', e))
@@ -710,10 +711,35 @@ export function HornoPage() {
       </div>
 
       <div className="bg-neutral-900 rounded-2xl mb-6 border border-neutral-800 overflow-hidden">
-        <div className="p-6 text-center">
-          <p className="text-6xl font-bold">{temp}<span className="text-2xl text-neutral-400 align-top">°C</span></p>
+        <div className="p-6">
+          {estado?.zonas && estado.zonas.length > 1 ? (
+            <div className="grid grid-cols-2 gap-3">
+              {estado.zonas.map((zona) => (
+                <div
+                  key={zona.id}
+                  className={`rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-center ${zona.online ? '' : 'opacity-40'}`}
+                >
+                  <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">
+                    {zona.id === 0 ? 'Maestro' : `Zona ${zona.id}`}
+                  </p>
+                  {zona.online ? (
+                    <>
+                      <p className="text-3xl font-bold">{zona.temp}<span className="text-base text-neutral-400 align-top">°C</span></p>
+                      <p className={`text-xs mt-1 ${zona.rele ? 'text-orange-400' : 'text-neutral-500'}`}>
+                        {zona.rele ? 'Resist. ON' : 'Resist. OFF'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-neutral-500 mt-3">sin conexión</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-6xl font-bold text-center">{temp}<span className="text-2xl text-neutral-400 align-top">°C</span></p>
+          )}
           {enProceso && tempObj > 0 && (
-            <p className="text-sm text-neutral-400 mt-2">objetivo: {tempObj}°C</p>
+            <p className="text-sm text-neutral-400 mt-2 text-center">objetivo: {tempObj}°C</p>
           )}
         </div>
 
