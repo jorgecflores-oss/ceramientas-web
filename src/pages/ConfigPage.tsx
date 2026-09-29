@@ -6,7 +6,7 @@ import { OTA_BIN_URL, STORAGE_KEYS } from '../utils/constants'
 import { publicarComando } from '../services/mqttService'
 import { AP_IP } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
-import type { LimitesConfig } from '../types/horno'
+import type { ConfigHorno, LimitesConfig } from '../types/horno'
 
 // Límites de firmware anterior a v3.6.0 (no manda "limites" en /config).
 // Firmware viejo rechaza valores fuera de estos rangos, así que la app no debe ofrecerlos.
@@ -108,9 +108,36 @@ export function ConfigPage({ onAgregarHorno }: Props) {
       if (!ok) {
         await postComando(horno.hornoId, cmd)
       }
+      // setconfig por MQTT es fire-and-forget: releer /config y comparar.
+      // Hasta 3 lecturas separadas 1s para darle tiempo al firmware a procesar el comando.
+      // Campos ausentes en GET /config (firmware viejo) no se verifican.
+      let aplicado = false
+      let cfg: ConfigHorno | null = null
+      for (let i = 0; i < 3 && !aplicado; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        try {
+          cfg = await getConfig(horno.hornoId)
+        } catch {
+          continue
+        }
+        aplicado = (cfg.potencia === undefined || cfg.potencia === potR)
+          && (cfg.factura === undefined || cfg.factura === facR)
+          && (cfg.consumo === undefined || cfg.consumo === conR)
+      }
+      if (!cfg) {
+        alert('Comando enviado, pero no se pudo verificar con el horno.')
+        return
+      }
+      if (!aplicado) {
+        // Reflejar lo que el horno tiene realmente
+        setPotencia(String(cfg.potencia ?? potR))
+        setFactura(String(cfg.factura ?? facR))
+        setConsumo(String(cfg.consumo ?? conR))
+        throw new Error('El horno no aplicó el cambio')
+      }
       alert('Guardado')
-    } catch {
-      alert('Error guardando')
+    } catch (e) {
+      alert(e instanceof Error && e.message === 'El horno no aplicó el cambio' ? e.message : 'Error guardando')
     } finally {
       setGuardando(false)
     }

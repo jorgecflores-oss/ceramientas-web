@@ -187,6 +187,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-09-15): `calcularYGuardarCurva` — rama `esNuevo=false` sin ancla cacheada usa `curvaMeta.tempInicio` (temperatura al arranque real, NVS firmware) para `tempAncla` en lugar del primer punto del buffer actual; fallback a heurística `tCapture - procesoMs` si resync falla pero curvaMeta tiene `tempInicio`; tipo `CurvaMetaPayload` agrega `tempInicio?: number`.
 - Docs (2026-09-29): firmware (base V3_6_0) arregla `extractStr` con desescape JSON — edición de programas custom vía MQTT deja de fallar; CLAUDE.md actualiza sección "Edición custom por MQTT".
 - Fix (2026-09-29): errores reales y vinculación robusta — ProgramasPage `mensajeErrorGuardado()` distingue firmware ≤3.6.0 ("nombre requerido" con nombre válido) de falta de conexión MQTT (sin texto hotspot/IP local); ConfigPage `guardarNombre` relee GET /config y falla con "El horno no aplicó el cambio" si no coincide (se saltea si firmware no devuelve `nombre`); `verificarHornoMQTT` reintenta con derivada invertida ante 401 sin pass explícita y devuelve `razon?: 'ok'|'timeout'|'auth'`; LoginPage muestra mensaje distinto según razón.
+- Fix (2026-09-29): ConfigPage `guardarParams` verifica `setconfig` — relee GET /config hasta 3 veces (1s entre lecturas) y compara potencia/factura/consumo; si no coincide muestra "El horno no aplicó el cambio" y refleja en los inputs los valores reales del horno; campos ausentes (firmware viejo) no se verifican; si ninguna lectura responde avisa "Comando enviado, pero no se pudo verificar".
 
 ## Notas arquitectura relevantes
 
