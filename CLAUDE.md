@@ -185,6 +185,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-09-12): ancla curva teórica al reconectar usa epoch real del firmware — `calcularYGuardarCurva` rama !esNuevo y rama esNuevo&&!keepHistorial leen `tIniciosMap[hornoId]` tras `resincronizarCurvaReal` (que ya corrigió el valor con el epoch); elimina corrimiento entre curva real y teórica en reconexión mid-process.
 - Feat (2026-09-15): tramo reconstruido (naranja punteado) en CurvaGrafico — segmento teórico previo al primer punto real disponible; visible tras microcortes o cuando la app estaba cerrada al arrancar la horneada; `reconstruidoPath` useMemo filtra `teoricoEf` por `t <= primerRealT` con punto de cierre interpolado; se dibuja antes que el real sólido en el SVG.
 - Fix (2026-09-15): `calcularYGuardarCurva` — rama `esNuevo=false` sin ancla cacheada usa `curvaMeta.tempInicio` (temperatura al arranque real, NVS firmware) para `tempAncla` en lugar del primer punto del buffer actual; fallback a heurística `tCapture - procesoMs` si resync falla pero curvaMeta tiene `tempInicio`; tipo `CurvaMetaPayload` agrega `tempInicio?: number`.
+- Docs (2026-09-29): firmware (base V3_6_0) arregla `extractStr` con desescape JSON — edición de programas custom vía MQTT deja de fallar; CLAUDE.md actualiza sección "Edición custom por MQTT".
 
 ## Notas arquitectura relevantes
 
@@ -212,12 +213,10 @@ PWA debe funcionar 3 escenarios:
 - Antes de ejecutar un custom (idx ≥ 4): re-POST los pasos vía `postPrograma` para garantizar que la EEPROM tiene los datos actuales. El error se traga si falla.
 - `STORAGE_KEYS.ULTIMO_PROG(hornoId)` guarda el idx del último programa ejecutado desde la webapp.
 
-### Limitación conocida: edición custom por MQTT
-**El firmware tiene un bug en `extractStr`** (parsea body MQTT hasta el primer `"` literal, y el body es JSON anidado con `\"` escapados → extrae basura → devuelve 400 "nombre requerido, max 19 chars").
-- **Consecuencia**: POST /programas/{idx} con body `{ nombre, pasos }` SIEMPRE falla vía MQTT, sin importar el nombre real.
-- **Fix webapp**: propagar ese error al usuario con mensaje claro ("necesitás estar conectado a la misma red Wi-Fi").
-- **Fix firmware requerido**: cambiar `extractStr` para manejar secuencias `\"` o cambiar el formato del payload MQTT.
-- **Workaround**: editar programas custom SOLO desde LAN o AP (conexión HTTP directa). Vía internet remoto (solo MQTT), la edición siempre fallará.
+### Edición custom por MQTT (resuelto en firmware posterior a 3.6.0)
+- **Bug histórico**: `extractStr` del firmware cortaba el valor en la primera `"` literal. En `/req` MQTT el `body` es JSON anidado con `\"` escapados → extraía `{\` → POST /programas/{idx} con `{ nombre, pasos }` devolvía 400 "nombre requerido" siempre vía MQTT.
+- **Fix firmware** (sobre base V3_6_0, 2026-09-29): `extractStr` recorre el valor desescapando `\"` `\\` `\n` `\r` `\t`; corta en la primera comilla sin escapar; sin cierre → `""`. JSON sin escapes (HTTP) da el mismo resultado que antes.
+- **Hornos con firmware ≤ 3.6.0**: el bug sigue → editar programas custom solo desde LAN o AP (HTTP directo). La webapp mantiene el mensaje de error claro ("necesitás estar conectado a la misma red Wi-Fi") para esos casos.
 
 ### Curva teórica — programas custom (HornoPage)
 - `STORAGE_KEYS.ULTIMO_PROG` se usa en `calcularYGuardarCurva` para identificar si el programa activo es custom (idx ≥ 4).
