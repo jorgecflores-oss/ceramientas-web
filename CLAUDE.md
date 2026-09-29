@@ -186,6 +186,7 @@ PWA debe funcionar 3 escenarios:
 - Feat (2026-09-15): tramo reconstruido (naranja punteado) en CurvaGrafico — segmento teórico previo al primer punto real disponible; visible tras microcortes o cuando la app estaba cerrada al arrancar la horneada; `reconstruidoPath` useMemo filtra `teoricoEf` por `t <= primerRealT` con punto de cierre interpolado; se dibuja antes que el real sólido en el SVG.
 - Fix (2026-09-15): `calcularYGuardarCurva` — rama `esNuevo=false` sin ancla cacheada usa `curvaMeta.tempInicio` (temperatura al arranque real, NVS firmware) para `tempAncla` en lugar del primer punto del buffer actual; fallback a heurística `tCapture - procesoMs` si resync falla pero curvaMeta tiene `tempInicio`; tipo `CurvaMetaPayload` agrega `tempInicio?: number`.
 - Docs (2026-09-29): firmware (base V3_6_0) arregla `extractStr` con desescape JSON — edición de programas custom vía MQTT deja de fallar; CLAUDE.md actualiza sección "Edición custom por MQTT".
+- Fix (2026-09-29): errores reales y vinculación robusta — ProgramasPage `mensajeErrorGuardado()` distingue firmware ≤3.6.0 ("nombre requerido" con nombre válido) de falta de conexión MQTT (sin texto hotspot/IP local); ConfigPage `guardarNombre` relee GET /config y falla con "El horno no aplicó el cambio" si no coincide (se saltea si firmware no devuelve `nombre`); `verificarHornoMQTT` reintenta con derivada invertida ante 401 sin pass explícita y devuelve `razon?: 'ok'|'timeout'|'auth'`; LoginPage muestra mensaje distinto según razón.
 
 ## Notas arquitectura relevantes
 

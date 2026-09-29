@@ -54,6 +54,19 @@ function duracionTotal(pasos: Paso[]): string {
 
 const formatVel = (v: number) => `${(v / 10).toFixed(1)}°C/min`
 
+// Traduce el error de postPrograma a un mensaje real para el usuario.
+// "nombre requerido" con nombre válido (1–19 chars) = firmware ≤ 3.6.0 con bug de extractStr en /req MQTT.
+function mensajeErrorGuardado(msg: string, nombre: string): string {
+  const nombreValido = nombre.length > 0 && nombre.length <= 19
+  if (nombreValido && msg.toLowerCase().includes('nombre requerido')) {
+    return 'El horno no entendió el pedido remoto. Su firmware es anterior a 3.6.1. Actualizá el firmware o conectate a la red local.'
+  }
+  if (msg.includes('MQTT no conectado') || msg.includes('Timeout MQTT request') || msg.includes('Sin password guardada')) {
+    return 'Sin conexión con el horno. Verificá que esté encendido y con wifi.'
+  }
+  return msg
+}
+
 export function ProgramasPage() {
   const horno = useHornoStore(s => s.hornoActivo)
   const programas = useHornoStore(s => s.programas)
@@ -149,13 +162,7 @@ export function ProgramasPage() {
       setEditPasos(null)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error guardando pasos'
-      // El firmware rechaza el cuerpo MQTT por un bug de parseo (no por nombre inválido).
-      // Si el nombre es válido, el problema es que no hay conexión directa.
-      if (nombre && msg.toLowerCase().includes('nombre')) {
-        alert('No se pudo guardar: el horno no está accesible por la red local.\n\nConfigurá la IP del horno en Ajustes → IP local, o conectate al hotspot del horno (red CERAMIENTAS_' + (horno?.hornoId?.slice(-4) ?? '????') + ').')
-      } else {
-        alert(msg)
-      }
+      alert(mensajeErrorGuardado(msg, nombre))
     } finally {
       setGuardandoPasos(false)
     }
@@ -221,11 +228,7 @@ export function ProgramasPage() {
       setNuevoPrograma(null)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error guardando programa'
-      if (nombre && msg.toLowerCase().includes('nombre')) {
-        alert('No se pudo guardar: el horno no está accesible por la red local.\n\nConfigurá la IP del horno en Ajustes → IP local, o conectate al hotspot del horno (red CERAMIENTAS_' + (horno?.hornoId?.slice(-4) ?? '????') + ').')
-      } else {
-        alert(msg)
-      }
+      alert(mensajeErrorGuardado(msg, nombre))
     } finally {
       setGuardandoNuevo(false)
     }

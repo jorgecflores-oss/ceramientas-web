@@ -307,25 +307,38 @@ export async function hornoRequest(
 export async function verificarHornoMQTT(
   hornoId: string,
   passExplicita?: string
-): Promise<{ ok: boolean; nombre?: string; version?: string }> {
+): Promise<{ ok: boolean; nombre?: string; version?: string; razon?: 'ok' | 'timeout' | 'auth' }> {
   const pass = (passExplicita ?? hornoId.slice(-6)).toLowerCase()
   const keyPass = STORAGE_KEYS.PASS(hornoId)
   const passPrevia = localStorage.getItem(keyPass)
+  const restaurar = () => {
+    if (passPrevia) localStorage.setItem(keyPass, passPrevia)
+    else localStorage.removeItem(keyPass)
+  }
+  const exito = (resp: { data: unknown }) => {
+    const data = resp.data as { nombre?: string; version?: string; ip?: string }
+    if (data.ip) cacheIP(hornoId, data.ip)
+    return { ok: true, nombre: data.nombre, version: data.version, razon: 'ok' as const }
+  }
   localStorage.setItem(keyPass, pass)
   try {
     const resp = await mqttRequest(hornoId, 'info', 'GET', undefined, 6000)
-    if (resp.status === 200) {
-      const data = resp.data as { nombre?: string; version?: string; ip?: string }
-      if (data.ip) cacheIP(hornoId, data.ip)
-      return { ok: true, nombre: data.nombre, version: data.version }
+    if (resp.status === 200) return exito(resp)
+    // Sin pass explícita y 401: probar la derivada invertida (misma convención que autoSanarPassword)
+    if (resp.status === 401 && passExplicita === undefined) {
+      const invertida = hornoId.slice(-6).toLowerCase().split('').reverse().join('')
+      localStorage.setItem(keyPass, invertida)
+      const resp2 = await mqttRequest(hornoId, 'info', 'GET', undefined, 6000)
+      if (resp2.status === 200) return exito(resp2)
+      restaurar()
+      return { ok: false, razon: resp2.status === 401 ? 'auth' : undefined }
     }
-    if (passPrevia) localStorage.setItem(keyPass, passPrevia)
-    else localStorage.removeItem(keyPass)
-    return { ok: false }
+    restaurar()
+    return { ok: false, razon: resp.status === 401 ? 'auth' : undefined }
   } catch {
-    if (passPrevia) localStorage.setItem(keyPass, passPrevia)
-    else localStorage.removeItem(keyPass)
-    return { ok: false }
+    // Timeout / MQTT no conectado: se considera falla de conexión
+    restaurar()
+    return { ok: false, razon: 'timeout' }
   }
 }
 

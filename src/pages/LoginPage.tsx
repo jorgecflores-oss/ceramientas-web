@@ -113,7 +113,9 @@ export function LoginPage({ onVolver, onVinculadoSinInternet }: Props) {
     try {
       const result = await verificarHornoMQTT(hornoId, passExplicita)
       if (!result.ok) {
-        setError('Horno no responde. Verificá el ID y que el horno esté encendido.')
+        if (result.razon === 'timeout') setError('Horno sin conexión. Verificá que esté encendido y con wifi.')
+        else if (result.razon === 'auth') setError('Contraseña incorrecta. Probá con ID:contraseña.')
+        else setError('Horno no responde. Verificá el ID y que el horno esté encendido.')
         return
       }
       try {

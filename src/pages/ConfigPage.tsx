@@ -120,12 +120,19 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     if (!horno?.hornoId || !pass || !nombreInput.trim()) return
     feedbackBoton()
     setGuardandoNombre(true)
+    const nuevoNombre = nombreInput.trim()
     try {
-      await postConfig(horno.hornoId, { nombre: nombreInput.trim() })
-      setHorno({ ...horno, nombre: nombreInput.trim() }, pass)
+      await postConfig(horno.hornoId, { nombre: nuevoNombre })
+      // El firmware responde 200 aunque ignore el nombre: releer y comparar.
+      // Si GET /config no trae `nombre` (firmware viejo) no se puede verificar → se acepta.
+      const cfg = await getConfig(horno.hornoId)
+      if (cfg.nombre !== undefined && cfg.nombre.trim() !== nuevoNombre) {
+        throw new Error('El horno no aplicó el cambio')
+      }
+      setHorno({ ...horno, nombre: nuevoNombre }, pass)
       setEditandoNombre(false)
-    } catch {
-      alert('Error guardando nombre')
+    } catch (e) {
+      alert(e instanceof Error && e.message === 'El horno no aplicó el cambio' ? e.message : 'Error guardando nombre')
     } finally {
       setGuardandoNombre(false)
     }
