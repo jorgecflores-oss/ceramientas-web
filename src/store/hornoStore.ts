@@ -344,10 +344,19 @@ export const useHornoStore = create<HornoState>((set, get) => ({
 
   setMqttConectado: (c) => set({ mqttConectado: c }),
 
-  registrarRespuesta: (hornoId, via) => set(state => ({
-    ultimoVia: { ...state.ultimoVia, [hornoId]: via },
-    ultimoRespuestaAt: { ...state.ultimoRespuestaAt, [hornoId]: Date.now() },
-  })),
+  registrarRespuesta: (hornoId, via) => set(state => {
+    const VENTANA_MQTT_PROTEGIDA = 60_000
+    // HTTP no debe pisar verde MQTT reciente (ni el timestamp que usa el fallback de HornoPage)
+    if (
+      via === 'http' &&
+      state.ultimoVia[hornoId] === 'mqtt' &&
+      Date.now() - (state.ultimoRespuestaAt[hornoId] ?? 0) < VENTANA_MQTT_PROTEGIDA
+    ) return state
+    return {
+      ultimoVia: { ...state.ultimoVia, [hornoId]: via },
+      ultimoRespuestaAt: { ...state.ultimoRespuestaAt, [hornoId]: Date.now() },
+    }
+  }),
 
   pushTemp: (temp) => {
     const id = get().hornoActivoId

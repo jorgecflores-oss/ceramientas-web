@@ -188,6 +188,7 @@ PWA debe funcionar 3 escenarios:
 - Docs (2026-09-29): firmware (base V3_6_0) arregla `extractStr` con desescape JSON — edición de programas custom vía MQTT deja de fallar; CLAUDE.md actualiza sección "Edición custom por MQTT".
 - Fix (2026-09-29): errores reales y vinculación robusta — ProgramasPage `mensajeErrorGuardado()` distingue firmware ≤3.6.0 ("nombre requerido" con nombre válido) de falta de conexión MQTT (sin texto hotspot/IP local); ConfigPage `guardarNombre` relee GET /config y falla con "El horno no aplicó el cambio" si no coincide (se saltea si firmware no devuelve `nombre`); `verificarHornoMQTT` reintenta con derivada invertida ante 401 sin pass explícita y devuelve `razon?: 'ok'|'timeout'|'auth'`; LoginPage muestra mensaje distinto según razón.
 - Fix (2026-09-29): ConfigPage `guardarParams` verifica `setconfig` — relee GET /config hasta 3 veces (1s entre lecturas) y compara potencia/factura/consumo; si no coincide muestra "El horno no aplicó el cambio" y refleja en los inputs los valores reales del horno; campos ausentes (firmware viejo) no se verifican; si ninguna lectura responde avisa "Comando enviado, pero no se pudo verificar".
+- Fix (2026-09-29): LED conexión — `registrarRespuesta` ignora respuestas `http` si la última fue `mqtt` hace <60s (`VENTANA_MQTT_PROTEGIDA`); evita que GET /config, /programas, /estado por HTTP pasen el LED de verde (Online) a azul (Local) con MQTT sano. El fallback de HornoPage (>60s sin respuesta) sigue viendo el timestamp MQTT.
 
 ## Notas arquitectura relevantes
 
