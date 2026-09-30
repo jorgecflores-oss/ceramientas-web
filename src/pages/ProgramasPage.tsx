@@ -59,7 +59,7 @@ const formatVel = (v: number) => `${(v / 10).toFixed(1)}°C/min`
 function mensajeErrorGuardado(msg: string, nombre: string): string {
   const nombreValido = nombre.length > 0 && nombre.length <= 19
   if (nombreValido && msg.toLowerCase().includes('nombre requerido')) {
-    return 'El horno no entendió el pedido remoto. Su firmware es anterior a 3.6.1. Actualizá el firmware o conectate a la red local.'
+    return 'El horno no entendió el pedido remoto. Su firmware es anterior a la última versión. Actualizá el firmware o conectate a la red local.'
   }
   if (msg.includes('MQTT no conectado') || msg.includes('Timeout MQTT request') || msg.includes('Sin password guardada')) {
     return 'Sin conexión con el horno. Verificá que esté encendido y con wifi.'

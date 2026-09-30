@@ -64,6 +64,14 @@ export function iniciarMQTT() {
         pend.resolve({ status: msg.status, data: msg.data })
       } catch (e) {
         console.error('[MQTT] parse res error', e)
+        // JSON inválido: si se puede recuperar el reqId, fallar el pedido ya en vez de esperar al timeout
+        const m = payload.toString().match(/"reqId"\s*:\s*"([^"]+)"/)
+        const pend = m ? pendientes.get(m[1]) : undefined
+        if (m && pend) {
+          clearTimeout(pend.timer)
+          pendientes.delete(m[1])
+          pend.reject(new Error('Respuesta inválida del horno'))
+        }
       }
       return
     }

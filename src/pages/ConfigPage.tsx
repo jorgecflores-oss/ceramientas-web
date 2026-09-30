@@ -18,6 +18,21 @@ const LIMITES_LEGACY: LimitesConfig = {
 
 const fmt = (n: number) => n.toLocaleString('es-AR')
 
+// Nombre del horno: el firmware acepta 1–19 bytes y no admite '"' ni '\\' (rompen JSON armado a mano).
+const NOMBRE_MAX_BYTES = 19
+const bytesUtf8 = (s: string) => new TextEncoder().encode(s).length
+
+// Quita '"' y '\\', y recorta por caracteres completos hasta entrar en 19 bytes UTF-8.
+function limpiarNombre(s: string): { limpio: string; quitados: boolean; recortado: boolean } {
+  const sinProhibidos = s.replace(/["\\]/g, '')
+  let limpio = ''
+  for (const ch of sinProhibidos) {
+    if (bytesUtf8(limpio + ch) > NOMBRE_MAX_BYTES) break
+    limpio += ch
+  }
+  return { limpio, quitados: sinProhibidos !== s, recortado: limpio !== sinProhibidos }
+}
+
 type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
 type WifiStep = null | 'detectando' | 'listo' | 'instrucciones'
 
@@ -41,6 +56,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [confirmarDesvincular, setConfirmarDesvincular] = useState(false)
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nombreInput, setNombreInput] = useState('')
+  const [avisoNombre, setAvisoNombre] = useState('')
   const [guardandoNombre, setGuardandoNombre] = useState(false)
 
   const [otaStep, setOtaStep] = useState<OtaStep>(null)
@@ -144,10 +160,13 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   }
 
   async function guardarNombre() {
-    if (!horno?.hornoId || !pass || !nombreInput.trim()) return
+    // Re-limpiar al guardar (por si el valor llegó sin pasar por onChange)
+    const { limpio, quitados } = limpiarNombre(nombreInput)
+    const nuevoNombre = limpio.trim()
+    if (quitados) setAvisoNombre('Se quitaron comillas y barras invertidas')
+    if (!horno?.hornoId || !pass || !nuevoNombre) return
     feedbackBoton()
     setGuardandoNombre(true)
-    const nuevoNombre = nombreInput.trim()
     try {
       await postConfig(horno.hornoId, { nombre: nuevoNombre })
       // El firmware responde 200 aunque ignore el nombre: releer y comparar.
@@ -382,11 +401,20 @@ export function ConfigPage({ onAgregarHorno }: Props) {
         <header className="mb-6">
           <p className="text-xs text-neutral-400 tracking-widest uppercase">ceramientas</p>
           {editandoNombre ? (
+            <>
             <div className="flex gap-2 items-center mt-1">
               <input
                 type="text"
                 value={nombreInput}
-                onChange={e => setNombreInput(e.target.value)}
+                onChange={e => {
+                  const { limpio, quitados, recortado } = limpiarNombre(e.target.value)
+                  setNombreInput(limpio)
+                  setAvisoNombre(
+                    quitados ? 'No se permiten comillas ni barras invertidas'
+                    : recortado ? `Máximo ${NOMBRE_MAX_BYTES} caracteres (los acentos y emojis ocupan más)`
+                    : ''
+                  )
+                }}
                 maxLength={19}
                 autoFocus
                 className="flex-1 px-2 py-1 bg-neutral-900 border border-orange-500 rounded text-2xl font-bold text-white"
@@ -406,10 +434,13 @@ export function ConfigPage({ onAgregarHorno }: Props) {
                 ✕
               </button>
             </div>
+            {avisoNombre && <p className="text-xs text-amber-400 mt-1">{avisoNombre}</p>}
+            </>
           ) : (
             <button
               onClick={() => {
                 setNombreInput(horno?.nombre ?? '')
+                setAvisoNombre('')
                 setEditandoNombre(true)
               }}
               className="text-2xl font-bold text-white mt-1 hover:text-orange-400 transition text-left"
