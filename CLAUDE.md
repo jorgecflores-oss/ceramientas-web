@@ -196,6 +196,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-10-01): toast de corte de luz convierte "850C" → "850°C" (misma regex que rama `meseta`).
 - Fix (2026-10-01): toast de corte de luz convierte TODAS las temperaturas (regex global `/([+-]?\d+)C\b/g`), incluye el `dT` con signo que agrega el firmware ("dT -12C" → "dT -12°C").
 - Feat (2026-10-01): silenciar alarma rampa lenta — `EstadoMQTT.rampaLentaSilenciada?` (mapeado de `rls` MQTT / `rampaLentaSilenciada` HTTP, sin default); HornoPage: con `rampaLenta` y `rls===false` banner amarillo + botón "🔕 Silenciar" (comando `silenciar_rampa_lenta`); con `rls===true` texto chico "silenciada hasta el próximo cambio de etapa"; firmware viejo (campo ausente) no muestra nada.
+- Feat (2026-10-01): informe de horneada — rampa real vs programada por etapa. `calcularResumenEtapas` mide cada rampa desde su arranque REAL (cruce de la etapa anterior + su meseta), no desde el teórico acumulado → el atraso de una etapa ya no contamina las siguientes. Por paso: tramo, rampa real (C/min), % de lo programado, estado (`cumple`/`atrasada`/`atrasada (riesgo alarma)` si atraso > 10 min/`adelantada`/`no alcanzada`/`sin rampa`/`sin datos`) y velocidad sugerida (90% de la real, solo si atrasada, con el signo de la programada). Tras la tabla: nota de alarma (15 min) y DURACION TOTAL programada vs con velocidades sugeridas. Prompt reescrito: tabla PROGRAMA SUGERIDO, análisis en prosa tramo por tramo usando RANGOS, caso "no alcanzada", sin columnas delta/margen.
 
 ## Notas arquitectura relevantes
 

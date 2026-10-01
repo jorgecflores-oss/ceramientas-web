@@ -37,6 +37,9 @@ function interpolarTeorica(puntos: { t: number; temp: number }[], t: number): nu
   return puntos[puntos.length - 1].temp
 }
 
+// Resumen por etapa: cada rampa se mide desde su arranque REAL (cruce de la etapa
+// anterior + su meseta), no desde el teorico. Asi el atraso de una etapa no se
+// arrastra a las siguientes.
 function calcularResumenEtapas(
   pasos: Paso[],
   historial: { t: number; temp: number }[],
@@ -45,15 +48,18 @@ function calcularResumenEtapas(
 ) {
   const resumen: {
     paso: number
+    desde: number
     objetivo: number
-    velocidad: number
-    duracionTeoricaMin: number
-    duracionRealMin: number | null
-    deltaMin: number | null
-    margenAlarmaMin: number | null
+    velProgramada: number
+    tieneRampa: boolean
+    rampaRealCMin: number | null
+    pct: number | null
+    atrasoMin: number | null
+    estado: string
+    velSugerida: number | null
   }[] = []
   let tempActual = tempInicio
-  let tAcumTeoricoMin = 0
+  let inicioRealMs: number | null = tInicio > 0 ? tInicio : null
   let idx = 0
   for (const paso of pasos) {
     idx++
@@ -61,31 +67,72 @@ function calcularResumenEtapas(
     const velocidad = paso.velocidad / 10
     const velAbs = Math.abs(velocidad)
     const delta = paso.temperatura - tempActual
-    const duracionTeoricaMin = velAbs > 0 && Math.abs(delta) > 0.5 ? Math.abs(delta) / velAbs : 0
-    const tInicioRampaMin = tAcumTeoricoMin
-    tAcumTeoricoMin += duracionTeoricaMin
+    const tieneRampa = velAbs > 0 && Math.abs(delta) > 0.5
 
-    let duracionRealMin: number | null = null
-    if (duracionTeoricaMin > 0) {
+    let rampaRealCMin: number | null = null
+    let pct: number | null = null
+    let atrasoMin: number | null = null
+    let estado = 'sin rampa'
+    let velSugerida: number | null = null
+
+    if (!tieneRampa) {
+      // Meseta pura o sin velocidad: solo corre el reloj de la meseta
+      if (inicioRealMs !== null) inicioRealMs += paso.tiempo * 60000
+    } else if (inicioRealMs === null) {
+      estado = 'sin datos'
+    } else {
+      const desdeMs = inicioRealMs
       const ascendente = delta >= 0
       const cruce = historial.find(p =>
-        ascendente ? p.temp >= paso.temperatura : p.temp <= paso.temperatura
+        p.t >= desdeMs && (ascendente ? p.temp >= paso.temperatura : p.temp <= paso.temperatura)
       )
-      if (cruce) duracionRealMin = (cruce.t - tInicio) / 60000 - tInicioRampaMin
+      if (cruce) {
+        const minReal = (cruce.t - desdeMs) / 60000
+        rampaRealCMin = minReal <= 0.01 ? null : Math.abs(delta) / minReal
+        atrasoMin = minReal - Math.abs(delta) / velAbs
+        inicioRealMs = cruce.t + paso.tiempo * 60000
+        if (rampaRealCMin !== null) {
+          pct = rampaRealCMin / velAbs * 100
+          if (pct < 95) estado = atrasoMin > 10 ? 'atrasada (riesgo alarma)' : 'atrasada'
+          else if (pct > 105) estado = 'adelantada'
+          else estado = 'cumple'
+        } else {
+          estado = 'sin datos'
+        }
+      } else {
+        // No llego al objetivo: rampa promedio hasta el ultimo punto registrado
+        estado = 'no alcanzada'
+        const posteriores = historial.filter(p => p.t >= desdeMs)
+        const ultimo = posteriores[posteriores.length - 1]
+        if (ultimo) {
+          const min = (ultimo.t - desdeMs) / 60000
+          if (min >= 1) {
+            rampaRealCMin = Math.abs(ultimo.temp - tempActual) / min
+            pct = rampaRealCMin / velAbs * 100
+          }
+        }
+        inicioRealMs = null  // los pasos siguientes quedan sin datos
+      }
+      if (estado.startsWith('atrasada') && rampaRealCMin !== null) {
+        // Mismo signo que la programada (rampa de enfriamiento = negativa)
+        velSugerida = Math.sign(velocidad) * Math.max(0.1, Math.floor(rampaRealCMin * 0.9 * 10) / 10)
+      }
     }
 
     resumen.push({
       paso: idx,
+      desde: Math.round(tempActual),
       objetivo: paso.temperatura,
-      velocidad,
-      duracionTeoricaMin,
-      duracionRealMin,
-      deltaMin: duracionRealMin !== null ? duracionRealMin - duracionTeoricaMin : null,
-      margenAlarmaMin: duracionRealMin !== null ? 15 - (duracionRealMin - duracionTeoricaMin) : null,
+      velProgramada: velocidad,
+      tieneRampa,
+      rampaRealCMin,
+      pct,
+      atrasoMin,
+      estado,
+      velSugerida,
     })
 
     tempActual = paso.temperatura
-    if (paso.tiempo > 0) tAcumTeoricoMin += paso.tiempo
   }
   return resumen
 }
@@ -104,6 +151,13 @@ Contexto del sistema de alarmas del controlador: dispara alarma de "rampa
 lenta" si una etapa tarda mas de 15 minutos por encima de su duracion
 teorica (segun la velocidad programada). No hay alarma por adelantarse.
 
+Como leer RESUMEN POR ETAPA: cada etapa se mide desde que arranco de verdad
+(cuando la anterior llego a su temperatura y termino su meseta), asi el
+atraso de una etapa no se arrastra a las siguientes. "Real" es la rampa
+promedio que logro el horno en ese tramo; "% de lo programado" compara esa
+rampa con la programada. "Velocidad sugerida" es 90% de la rampa real (un
+margen para no disparar la alarma); "mantener" = no hace falta cambiarla.
+
 Genera un archivo PDF, tamano A4, uniendo todo esto en un solo informe.
 IMPORTANTE: el informe tiene que incluir texto de analisis escrito, en
 prosa, no solo las tablas sueltas - las tablas solas no alcanzan.
@@ -116,15 +170,24 @@ Contenido del PDF:
 - La tabla RESUMEN POR ETAPA (datos mas abajo).
 - La tabla RANGOS DE TEMPERATURA (datos mas abajo): rampa real
   observada (C/min) cada 100C, capacidad real del horno tramo a tramo.
+- Una tabla PROGRAMA SUGERIDO: los mismos pasos, con las mismas
+  temperaturas objetivo y mesetas; solo cambia la velocidad, usando la
+  velocidad sugerida donde la haya (donde dice "mantener", la misma
+  velocidad programada).
+- La linea DURACION TOTAL DEL PROGRAMA (programada vs con velocidades
+  sugeridas).
 - Despues de las tablas, un ANALISIS ESCRITO EN PROSA (texto corrido,
-  no una lista) que:
-  - Interprete la tabla RESUMEN POR ETAPA: que etapas se adelantaron,
-    cuales se atrasaron, y si alguna estuvo cerca del umbral de alarma
-    de 15 minutos (columna margen hasta alarma).
-  - Cierre con una recomendacion concreta para la proxima horneada: si
-    alguna velocidad de rampa programada conviene subir o bajar para
-    ajustarse mejor a la capacidad real de este horno, con el valor
-    sugerido en C/min.`
+  no una lista):
+  - Tramo por tramo: un parrafo corto por cada etapa con rampa, que diga
+    la rampa real vs la programada, si cumplio, y que conviene cambiar.
+    Usa la tabla RANGOS DE TEMPERATURA para decir si la rampa del horno
+    cae en ciertos rangos (por ejemplo, si pierde capacidad arriba de
+    cierta temperatura).
+  - Si una etapa figura "no alcanzada", deci que el horno no llego a esa
+    temperatura con ese programa y sugeri una velocidad menor o mesetas
+    mas largas. No inventes datos que no esten en las tablas.
+  - Cierre con una recomendacion concreta de como modificar el programa,
+    con los valores en C/min, y cuanto cambia la duracion total.`
 
   let tablaPrograma = 'PROGRAMA: (sin datos)\n'
   if (prog) {
@@ -137,16 +200,31 @@ Contenido del PDF:
       })
   }
 
-  let tablaResumen = 'RESUMEN POR ETAPA (delta positivo = se atraso, negativo = se adelanto)\n'
-  tablaResumen += 'Paso | Objetivo(C) | Vel.programada(C/min) | Duracion teorica(min) | Duracion real(min) | Delta(min) | Margen hasta alarma(min)\n'
+  let tablaResumen = 'RESUMEN POR ETAPA (rampa real vs programada, C/min)\n'
+  tablaResumen += 'Paso | Tramo (C) | Programada(C/min) | Real(C/min) | % de lo programado | Estado | Velocidad sugerida(C/min)\n'
   if (prog) {
     const resumen = calcularResumenEtapas(prog.pasos, snapshot.historialTemp, snapshot.puntosTeoricos[0]?.temp ?? 0, snapshot.tInicio)
+    let totalProgramadoMin = 0
+    let totalSugeridoMin = 0
     for (const r of resumen) {
-      const dur = r.duracionRealMin !== null ? r.duracionRealMin.toFixed(1) : 's/d'
-      const delta = r.deltaMin !== null ? `${r.deltaMin >= 0 ? '+' : ''}${r.deltaMin.toFixed(1)}` : 's/d'
-      const margen = r.margenAlarmaMin !== null ? r.margenAlarmaMin.toFixed(1) : 's/d'
-      tablaResumen += `${r.paso} | ${r.objetivo} | ${r.velocidad.toFixed(1)} | ${r.duracionTeoricaMin.toFixed(1)} | ${dur} | ${delta} | ${margen}\n`
+      const real = r.rampaRealCMin !== null ? r.rampaRealCMin.toFixed(1) : 's/d'
+      const pct = r.pct !== null ? `${Math.round(r.pct)}%` : 's/d'
+      const sug = r.velSugerida !== null ? r.velSugerida.toFixed(1) : 'mantener'
+      tablaResumen += `${r.paso} | ${r.desde}->${r.objetivo} | ${r.velProgramada.toFixed(1)} | ${real} | ${pct} | ${r.estado} | ${sug}\n`
+
+      // Duracion: rampa (|delta T| / velocidad) + meseta del paso
+      const meseta = prog.pasos[r.paso - 1]?.tiempo ?? 0
+      const deltaAbs = Math.abs(r.objetivo - r.desde)
+      const velProgAbs = Math.abs(r.velProgramada)
+      const velSugAbs = r.velSugerida !== null ? Math.abs(r.velSugerida) : velProgAbs
+      totalProgramadoMin += (r.tieneRampa ? deltaAbs / velProgAbs : 0) + meseta
+      totalSugeridoMin += (r.tieneRampa ? deltaAbs / velSugAbs : 0) + meseta
     }
+    tablaResumen += 'Nota: la alarma de rampa lenta dispara si una etapa tarda 15 min mas que su duracion teorica (=|delta T|/velocidad programada). "riesgo alarma" = atraso mayor a 10 min.\n'
+    const totProg = Math.round(totalProgramadoMin)
+    const totSug = Math.round(totalSugeridoMin)
+    const dif = totSug - totProg
+    tablaResumen += `DURACION TOTAL DEL PROGRAMA: programada ${totProg} min | con velocidades sugeridas ${totSug} min | diferencia ${dif >= 0 ? '+' : ''}${dif} min\n`
   }
 
   let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min)\n'
