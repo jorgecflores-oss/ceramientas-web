@@ -192,6 +192,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-09-30): ConfigPage nombre del horno — `limpiarNombre()` quita `"` y `\` al tipear/guardar y recorta a 19 bytes UTF-8 (`TextEncoder`), con aviso corto bajo el input; mqttService: JSON inválido en `/res` recupera `reqId` por regex y rechaza el pedido pendiente con "Respuesta inválida del horno" en vez de esperar al timeout; ProgramasPage: texto de firmware viejo pasa a "anterior a la última versión".
 - Feat (2026-10-01): HistorialPage etiqueta motivos nuevos del firmware (`detenido_remoto`, `detenido_boton`, `rampa_rapida`; `detenido` pasa a "origen no registrado"); HornoPage: notif `corte_luz` abre modal solo si el estado tiene `corteLuz` (firmware espera decisión), si no muestra toast "reanudación automática"; botón Cancelar del modal corte de luz pide `confirm()`.
 - Fix (2026-10-01): toast de corte de luz con reanudación automática usa `notif.msg` del firmware (incluye motivo de reset y temperatura), fallback al texto genérico.
+- Feat (2026-10-01): ConfigPage — botón "Ver últimos reinicios del controlador" bajo el pie de versión; consulta `GET /info` bajo demanda vía `hornoRequest` y muestra `resets` (log NVS firmware, últimos 5, `*` = horneada activa); fallback a `reset` (solo el último) en firmware viejo.
 
 ## Notas arquitectura relevantes
 

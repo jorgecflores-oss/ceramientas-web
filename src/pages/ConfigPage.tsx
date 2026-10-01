@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useHornoStore } from '../store/hornoStore'
 import { SelectorHorno } from '../components/SelectorHorno'
-import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP, fetchProgramasOnce } from '../services/hornoService'
+import { getConfig, postComando, postConfig, postOTA, getOTAStatus, OTA_VERSION_URL, getCachedIP, fetchProgramasOnce, hornoRequest } from '../services/hornoService'
 import { OTA_BIN_URL, STORAGE_KEYS } from '../utils/constants'
 import { publicarComando } from '../services/mqttService'
 import { AP_IP } from '../utils/constants'
@@ -52,6 +52,8 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [consumo, setConsumo] = useState('')
   const [limites, setLimites] = useState<LimitesConfig>(LIMITES_LEGACY)
   const [versionFw, setVersionFw] = useState<string | null>(null)
+  const [resetsFw, setResetsFw] = useState<string | null>(null)
+  const [cargandoResets, setCargandoResets] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [confirmarDesvincular, setConfirmarDesvincular] = useState(false)
   const [editandoNombre, setEditandoNombre] = useState(false)
@@ -91,6 +93,21 @@ export function ConfigPage({ onAgregarHorno }: Props) {
       if (otaIntervalRef.current) clearInterval(otaIntervalRef.current)
     }
   }, [])
+
+  // Consulta bajo demanda (no al abrir la página): evita cargar la cola MQTT con señal floja.
+  async function verResets() {
+    if (!horno?.hornoId || cargandoResets) return
+    setCargandoResets(true)
+    try {
+      const resp = await hornoRequest(horno.hornoId, 'info', 'GET')
+      const d = resp.data as { reset?: string; resets?: string }
+      setResetsFw(d.resets || (d.reset ? `${d.reset} (solo el último)` : 'no disponible en este firmware'))
+    } catch {
+      setResetsFw('sin respuesta del horno')
+    } finally {
+      setCargandoResets(false)
+    }
+  }
 
   async function guardarParams() {
     const potV = Number(potencia)
@@ -674,6 +691,17 @@ export function ConfigPage({ onAgregarHorno }: Props) {
         <p className="text-center text-xs text-neutral-500 mt-8">
           App v0.1.0 · FW {versionFw ? `v${versionFw}` : '—'}
         </p>
+        <div className="text-center mt-2">
+          <button onClick={verResets} className="text-xs text-neutral-500 underline">
+            {cargandoResets ? 'Consultando…' : 'Ver últimos reinicios del controlador'}
+          </button>
+          {resetsFw !== null && (
+            <p className="text-xs text-neutral-400 mt-1 break-all">
+              {resetsFw}{' '}
+              <span className="text-neutral-600">(más nuevo primero · * = había horneada activa)</span>
+            </p>
+          )}
+        </div>
 
       </div>
 
