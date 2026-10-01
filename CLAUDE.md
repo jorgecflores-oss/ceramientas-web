@@ -191,6 +191,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-09-29): LED conexión — `registrarRespuesta` ignora respuestas `http` si la última fue `mqtt` hace <60s (`VENTANA_MQTT_PROTEGIDA`); evita que GET /config, /programas, /estado por HTTP pasen el LED de verde (Online) a azul (Local) con MQTT sano. El fallback de HornoPage (>60s sin respuesta) sigue viendo el timestamp MQTT.
 - Fix (2026-09-30): ConfigPage nombre del horno — `limpiarNombre()` quita `"` y `\` al tipear/guardar y recorta a 19 bytes UTF-8 (`TextEncoder`), con aviso corto bajo el input; mqttService: JSON inválido en `/res` recupera `reqId` por regex y rechaza el pedido pendiente con "Respuesta inválida del horno" en vez de esperar al timeout; ProgramasPage: texto de firmware viejo pasa a "anterior a la última versión".
 - Feat (2026-10-01): HistorialPage etiqueta motivos nuevos del firmware (`detenido_remoto`, `detenido_boton`, `rampa_rapida`; `detenido` pasa a "origen no registrado"); HornoPage: notif `corte_luz` abre modal solo si el estado tiene `corteLuz` (firmware espera decisión), si no muestra toast "reanudación automática"; botón Cancelar del modal corte de luz pide `confirm()`.
+- Fix (2026-10-01): toast de corte de luz con reanudación automática usa `notif.msg` del firmware (incluye motivo de reset y temperatura), fallback al texto genérico.
 
 ## Notas arquitectura relevantes
 

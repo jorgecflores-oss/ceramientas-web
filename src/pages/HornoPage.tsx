@@ -305,7 +305,7 @@ export function HornoPage() {
         corteLuzCooldownRef.current = now
         // Modal solo si el firmware espera decisión (cl). Con auto-reanudar no hay nada que decidir.
         if (useHornoStore.getState().estados[horno.hornoId]?.corteLuz) setModalCorteLuz(true)
-        else mostrarToast(`${horno.nombre}: corte de luz detectado — reanudación automática`, 'warn')
+        else mostrarToast(`${horno.nombre}: ${notif.msg ?? 'corte de luz detectado — reanudación automática'}`, 'warn')
       } else if (notif.tipo === 'rampa_rapida') {
         if (rampaRapidaShownRef.current) return
         rampaRapidaShownRef.current = true
