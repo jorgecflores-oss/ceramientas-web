@@ -194,6 +194,7 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-10-01): toast de corte de luz con reanudación automática usa `notif.msg` del firmware (incluye motivo de reset y temperatura), fallback al texto genérico.
 - Feat (2026-10-01): ConfigPage — botón "Ver últimos reinicios del controlador" bajo el pie de versión; consulta `GET /info` bajo demanda vía `hornoRequest` y muestra `resets` (log NVS firmware, últimos 5, `*` = horneada activa); fallback a `reset` (solo el último) en firmware viejo.
 - Fix (2026-10-01): toast de corte de luz convierte "850C" → "850°C" (misma regex que rama `meseta`).
+- Fix (2026-10-01): toast de corte de luz convierte TODAS las temperaturas (regex global `/([+-]?\d+)C\b/g`), incluye el `dT` con signo que agrega el firmware ("dT -12C" → "dT -12°C").
 
 ## Notas arquitectura relevantes
 
