@@ -48,6 +48,7 @@ export interface EstadoMQTT {
   restanteMeseta: number | null
   rele: boolean
   rampaLenta: boolean
+  rampaLentaSilenciada?: boolean  // undefined = firmware sin soporte (no manda rls)
   rampaRapida: boolean
   corteLuz: boolean
   termocuplaAbierta: boolean

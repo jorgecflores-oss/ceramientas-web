@@ -157,6 +157,7 @@ export function HornoPage() {
           restanteMeseta: data.mr ?? data.minutosRestantesMeseta ?? null,
           rele: data.r ?? data.rele ?? false,
           rampaLenta: data.rl ?? data.rampaLenta ?? false,
+          rampaLentaSilenciada: data.rls ?? data.rampaLentaSilenciada,
           rampaRapida: data.rr ?? data.rampaRapida ?? false,
           corteLuz: data.cl ?? data.corteLuz ?? false,
           termocuplaAbierta: data.tc ?? data.termocuplaAbierta ?? false,
@@ -803,6 +804,23 @@ export function HornoPage() {
             Ver opciones
           </button>
         </div>
+      )}
+
+      {/* Rampa lenta: solo con firmware que manda rls (undefined = firmware viejo, no se muestra) */}
+      {estado?.rampaLenta && estado.rampaLentaSilenciada === false && (
+        <div className="bg-yellow-900/30 border border-yellow-800 rounded-lg p-4 mb-4 flex items-center justify-between gap-3">
+          <p className="text-yellow-400 font-semibold">Rampa lenta: la temperatura sube más despacio que lo programado</p>
+          <button
+            onClick={() => { feedbackBoton(); enviarCmd('silenciar_rampa_lenta') }}
+            className="shrink-0 text-xs text-yellow-400 border border-yellow-800 rounded px-2 py-1 hover:bg-yellow-900/50 transition active:scale-95 duration-75"
+          >
+            🔕 Silenciar
+          </button>
+        </div>
+      )}
+
+      {estado?.rampaLenta && estado.rampaLentaSilenciada === true && (
+        <p className="text-xs text-yellow-600/80 mb-4">Rampa lenta (silenciada hasta el próximo cambio de etapa)</p>
       )}
 
       {estado?.rampaRapida && (

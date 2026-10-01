@@ -249,6 +249,7 @@ function mapearEstado(d: any): EstadoMQTT {
     restanteMeseta: d.mr ?? d.minutosRestantesMeseta ?? null,
     rele: d.r ?? d.rele ?? false,
     rampaLenta: d.rl ?? d.rampaLenta ?? false,
+    rampaLentaSilenciada: d.rls ?? d.rampaLentaSilenciada,
     rampaRapida: d.rr ?? d.rampaRapida ?? false,
     corteLuz: d.cl ?? d.corteLuz ?? false,
     termocuplaAbierta: d.tc ?? d.termocuplaAbierta ?? false,
