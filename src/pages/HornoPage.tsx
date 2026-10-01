@@ -303,7 +303,9 @@ export function HornoPage() {
       if (notif.tipo === 'corte_luz') {
         if (now - corteLuzCooldownRef.current < 30000) return
         corteLuzCooldownRef.current = now
-        setModalCorteLuz(true)
+        // Modal solo si el firmware espera decisión (cl). Con auto-reanudar no hay nada que decidir.
+        if (useHornoStore.getState().estados[horno.hornoId]?.corteLuz) setModalCorteLuz(true)
+        else mostrarToast(`${horno.nombre}: corte de luz detectado — reanudación automática`, 'warn')
       } else if (notif.tipo === 'rampa_rapida') {
         if (rampaRapidaShownRef.current) return
         rampaRapidaShownRef.current = true
@@ -881,7 +883,7 @@ export function HornoPage() {
           <p className="text-neutral-300 text-sm mb-6">¿Continuamos la horneada?</p>
           <div className="flex gap-3">
             <button
-              onClick={() => { feedbackBoton(); setModalCorteLuz(false); cancelarRetryContinuar(); enviarCmd('detener') }}
+              onClick={() => { if (!confirm('¿Cancelar la horneada?')) return; feedbackBoton(); setModalCorteLuz(false); cancelarRetryContinuar(); enviarCmd('detener') }}
               className="flex-1 py-3 border border-neutral-600 rounded-xl text-neutral-300 font-semibold hover:bg-neutral-800 active:scale-95 transition-all duration-75"
             >
               Cancelar
