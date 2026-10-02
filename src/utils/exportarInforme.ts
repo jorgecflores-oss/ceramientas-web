@@ -227,7 +227,7 @@ Contenido del PDF:
     tablaResumen += `DURACION TOTAL DEL PROGRAMA: programada ${totProg} min | con velocidades sugeridas ${totSug} min | diferencia ${dif >= 0 ? '+' : ''}${dif} min\n`
   }
 
-  let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min)\n'
+  let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min): promedio por banda, minima y maxima en ventanas de 5 min\n'
   tablaRangos += 'Rango (C) | Minima | Maxima | Promedio\n'
   for (const b of calcularRangosRampa(snapshot.historialTemp)) {
     tablaRangos += `${b.desde}-${b.hasta} | ${b.min.toFixed(1)} | ${b.max.toFixed(1)} | ${b.promedio.toFixed(1)}\n`
@@ -244,26 +244,49 @@ Contenido del PDF:
   descargarTexto(nombreArchivo, contenido)
 }
 
+// Rampa por banda de 100 C. No usa pares consecutivos: el historial puede traer
+// varias muestras con el mismo t (sello de minuto entero), y dividir por esos
+// dt subestima la rampa. Promedio = primer y ultimo punto de la banda; min/max =
+// ventanas de 5 min, asignadas a la banda del punto donde arranca la ventana.
 function calcularRangosRampa(puntos: { t: number; temp: number }[]) {
   const BANDA = 100
-  const acumulado = new Map<number, { min: number; max: number; suma: number; n: number }>()
-  for (let i = 1; i < puntos.length; i++) {
-    const a = puntos[i - 1]
-    const b = puntos[i]
-    const dtMin = (b.t - a.t) / 60000
-    if (dtMin <= 0) continue
-    const rampa = (b.temp - a.temp) / dtMin
-    const banda = Math.floor(a.temp / BANDA) * BANDA
-    const actual = acumulado.get(banda) ?? { min: Infinity, max: -Infinity, suma: 0, n: 0 }
-    actual.min = Math.min(actual.min, rampa)
-    actual.max = Math.max(actual.max, rampa)
-    actual.suma += rampa
-    actual.n += 1
-    acumulado.set(banda, actual)
+  const MIN_MS = 60000
+  const VENTANA_MS = 5 * MIN_MS
+  const orden = [...puntos].sort((a, b) => a.t - b.t)
+  const bandaDe = (temp: number) => Math.floor(temp / BANDA) * BANDA
+
+  // Promedio por banda: (tempUltima - tempPrimera) / (tUltimo - tPrimero)
+  const extremos = new Map<number, { primero: { t: number; temp: number }; ultimo: { t: number; temp: number } }>()
+  for (const p of orden) {
+    const banda = bandaDe(p.temp)
+    const e = extremos.get(banda)
+    if (!e) extremos.set(banda, { primero: p, ultimo: p })
+    else e.ultimo = p
   }
-  return [...acumulado.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([desde, v]) => ({ desde, hasta: desde + BANDA, min: v.min, max: v.max, promedio: v.suma / v.n }))
+
+  // Ventanas de 5 min: min y max por banda de arranque
+  const ventanas = new Map<number, { min: number; max: number }>()
+  let j = 0
+  for (let i = 0; i < orden.length; i++) {
+    if (j < i) j = i
+    while (j < orden.length && orden[j].t - orden[i].t < VENTANA_MS) j++
+    if (j >= orden.length) break  // desde aca ninguna ventana completa de 5 min
+    const rampa = (orden[j].temp - orden[i].temp) / ((orden[j].t - orden[i].t) / MIN_MS)
+    const banda = bandaDe(orden[i].temp)
+    const v = ventanas.get(banda)
+    if (!v) ventanas.set(banda, { min: rampa, max: rampa })
+    else { v.min = Math.min(v.min, rampa); v.max = Math.max(v.max, rampa) }
+  }
+
+  const salida: { desde: number; hasta: number; min: number; max: number; promedio: number }[] = []
+  for (const [desde, e] of extremos) {
+    const dtMs = e.ultimo.t - e.primero.t
+    if (e.primero === e.ultimo || dtMs < MIN_MS) continue  // menos de 2 puntos o menos de 1 min: sin dato
+    const promedio = (e.ultimo.temp - e.primero.temp) / (dtMs / MIN_MS)
+    const v = ventanas.get(desde)
+    salida.push({ desde, hasta: desde + BANDA, min: v ? v.min : promedio, max: v ? v.max : promedio, promedio })
+  }
+  return salida.sort((a, b) => a.desde - b.desde)
 }
 
 export function exportarCurvaHorno(snapshot: Snapshot) {
@@ -279,10 +302,11 @@ Genera un archivo PDF, tamano A4, con:
 - El grafico de la curva real.
 - La tabla de rangos de temperatura con rampa minima/maxima/promedio.
 - Una sugerencia de que rampas son razonables programar en cada tramo sin
-  disparar falsas alarmas de rampa lenta.`
+  disparar falsas alarmas de rampa lenta.
+  Sugerir velocidades iguales o menores al 90 por ciento del promedio observado en cada tramo, para dejar margen contra falsas alarmas de rampa lenta.`
 
   const bandas = calcularRangosRampa(snapshot.historialTemp)
-  let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min)\n'
+  let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min): promedio por banda, minima y maxima en ventanas de 5 min\n'
   tablaRangos += 'Rango (C) | Minima | Maxima | Promedio\n'
   for (const b of bandas) {
     tablaRangos += `${b.desde}-${b.hasta} | ${b.min.toFixed(1)} | ${b.max.toFixed(1)} | ${b.promedio.toFixed(1)}\n`
