@@ -5,7 +5,7 @@ import { getProgramas } from '../services/hornoService'
 import { calcularCurvaTeorica } from './curvaTeorica'
 
 // Snapshot con programa recuperado del equipo (no del arranque real)
-export type SnapshotInforme = Snapshot & { programaDesdeHistorial?: boolean }
+export type SnapshotInforme = Snapshot & { programaDesdeHistorial?: boolean; programaOrigenSinFecha?: boolean }
 
 const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
 
@@ -151,22 +151,39 @@ export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snap
     const MARGEN_MS = 30 * 60000
     const lastT = snap.historialTemp[snap.historialTemp.length - 1].t
     const lista = await getHistorial(hornoId)
+    // Fecha valida: timestamp no nulo y posterior a 2020 (sin NTP el equipo guarda 0 o epoch chico)
+    const fechaValida = (ts: number) => !!ts && ts >= 1577836800
     const candidatas = lista.filter(h => {
       const ms = h.timestamp * 1000
-      return ms >= snap.tInicio - MARGEN_MS && ms <= lastT + MARGEN_MS
+      return fechaValida(h.timestamp) && ms >= snap.tInicio - MARGEN_MS && ms <= lastT + MARGEN_MS
     })
-    if (candidatas.length === 0) return null
-    const entrada = candidatas.reduce((a, b) =>
-      Math.abs(b.timestamp * 1000 - snap.tInicio) < Math.abs(a.timestamp * 1000 - snap.tInicio) ? b : a
-    )
+    let entrada: (typeof lista)[number]
+    let sinFecha = false
+    if (candidatas.length > 0) {
+      entrada = candidatas.reduce((a, b) =>
+        Math.abs(b.timestamp * 1000 - snap.tInicio) < Math.abs(a.timestamp * 1000 - snap.tInicio) ? b : a
+      )
+    } else {
+      // Sin fecha: solo si ninguna entrada tiene fecha valida; se usa la mas reciente (indice 0)
+      if (lista.length === 0 || lista.some(h => fechaValida(h.timestamp))) return null
+      entrada = lista[0]
+      sinFecha = true
+    }
     const nombre = entrada.programa.trim().toLowerCase()
     if (!nombre) return null
+    const maxReal = Math.max(...snap.historialTemp.map(p => p.temp))
+    // La entrada cubre la horneada completa; la curva puede ser solo un tramo
+    if (sinFecha && !(entrada.tempMax >= maxReal - 10)) return null
     const programas = await getProgramas(hornoId)
     const prog = programas.find(p => (p.nombre ?? '').trim().toLowerCase() === nombre)
     if (!prog) return null
+    if (sinFecha && !prog.pasos.some(p => p.temperatura >= maxReal - 20)) return null
     const tempInicio = snap.historialTemp[0].temp
     const puntos = calcularCurvaTeorica(prog.pasos, tempInicio, snap.tInicio)
-    return { ...snap, modo: 'programa', programa: prog, puntosTeoricos: puntos, programaDesdeHistorial: true }
+    return {
+      ...snap, modo: 'programa', programa: prog, puntosTeoricos: puntos, programaDesdeHistorial: true,
+      ...(sinFecha ? { programaOrigenSinFecha: true } : {}),
+    }
   } catch {
     return null
   }
@@ -229,7 +246,9 @@ Contenido del PDF:
   let tablaPrograma = 'PROGRAMA: (sin datos)\n'
   if (prog) {
     tablaPrograma = `PROGRAMA: ${prog.nombre}\n`
-    if (snapshot.programaDesdeHistorial) {
+    if (snapshot.programaOrigenSinFecha) {
+      tablaPrograma += 'AVISO: programa tomado de la entrada mas reciente del historial del equipo (sin fecha) por nombre. Si no corresponde a esta horneada o se edito despues, los pasos pueden diferir.\n'
+    } else if (snapshot.programaDesdeHistorial) {
       tablaPrograma += 'AVISO: programa tomado del equipo por nombre segun el historial. Si se edito despues de la horneada, los pasos pueden diferir de los que se usaron realmente.\n'
     }
     tablaPrograma += 'Paso | Velocidad (C/min) | Temp objetivo (C) | Meseta (min)\n'
