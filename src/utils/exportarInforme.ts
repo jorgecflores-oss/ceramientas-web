@@ -5,7 +5,14 @@ import { getProgramas } from '../services/hornoService'
 import { calcularCurvaTeorica } from './curvaTeorica'
 
 // Snapshot con programa recuperado del equipo (no del arranque real)
-export type SnapshotInforme = Snapshot & { programaDesdeHistorial?: boolean; programaOrigenSinFecha?: boolean }
+// pasoInicial/anclaT/anclaTemp: la curva del equipo arranca a mitad del programa
+export type SnapshotInforme = Snapshot & {
+  programaDesdeHistorial?: boolean
+  programaOrigenSinFecha?: boolean
+  pasoInicial?: number
+  anclaT?: number
+  anclaTemp?: number
+}
 
 const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
 
@@ -50,11 +57,12 @@ function calcularResumenEtapas(
   pasos: Paso[],
   historial: { t: number; temp: number }[],
   tempInicio: number,
-  tInicio: number
+  tInicio: number,
+  pasoInicial = 0
 ) {
   const resumen: {
     paso: number
-    desde: number
+    desde: number | null
     objetivo: number
     velProgramada: number
     tieneRampa: boolean
@@ -67,9 +75,27 @@ function calcularResumenEtapas(
   let tempActual = tempInicio
   let inicioRealMs: number | null = tInicio > 0 ? tInicio : null
   let idx = 0
+  let objetivoPrevio: number | null = null  // solo para mostrar el tramo de pasos previos
   for (const paso of pasos) {
     idx++
     if (!pasoActivo(paso)) continue
+    if (idx - 1 < pasoInicial) {
+      // Paso anterior al primer dato real: sin medicion, no mueve tempActual ni inicioRealMs
+      resumen.push({
+        paso: idx,
+        desde: objetivoPrevio,
+        objetivo: paso.temperatura,
+        velProgramada: paso.velocidad / 10,
+        tieneRampa: false,
+        rampaRealCMin: null,
+        pct: null,
+        atrasoMin: null,
+        estado: 'previa a la ventana',
+        velSugerida: null,
+      })
+      objetivoPrevio = paso.temperatura
+      continue
+    }
     const velocidad = paso.velocidad / 10
     const velAbs = Math.abs(velocidad)
     const delta = paso.temperatura - tempActual
@@ -80,6 +106,7 @@ function calcularResumenEtapas(
     let atrasoMin: number | null = null
     let estado = 'sin rampa'
     let velSugerida: number | null = null
+    let minNoAlcanzada = 0
 
     if (!tieneRampa) {
       // Meseta pura o sin velocidad: solo corre el reloj de la meseta
@@ -112,6 +139,7 @@ function calcularResumenEtapas(
         const ultimo = posteriores[posteriores.length - 1]
         if (ultimo) {
           const min = (ultimo.t - desdeMs) / 60000
+          minNoAlcanzada = min
           if (min >= 1) {
             rampaRealCMin = Math.abs(ultimo.temp - tempActual) / min
             pct = rampaRealCMin / velAbs * 100
@@ -119,7 +147,8 @@ function calcularResumenEtapas(
         }
         inicioRealMs = null  // los pasos siguientes quedan sin datos
       }
-      if (estado.startsWith('atrasada') && rampaRealCMin !== null) {
+      const noAlcanzadaLenta = estado === 'no alcanzada' && minNoAlcanzada >= 10 && pct !== null && pct < 95
+      if ((estado.startsWith('atrasada') || noAlcanzadaLenta) && rampaRealCMin !== null) {
         // Mismo signo que la programada (rampa de enfriamiento = negativa)
         velSugerida = Math.sign(velocidad) * Math.max(0.1, Math.floor(rampaRealCMin * 0.9 * 10) / 10)
       }
@@ -139,8 +168,33 @@ function calcularResumenEtapas(
     })
 
     tempActual = paso.temperatura
+    objetivoPrevio = paso.temperatura
   }
   return resumen
+}
+
+// La curva del equipo (/curva) puede cubrir solo los ultimos minutos: el primer
+// punto real cae a mitad del programa. Se busca el primer paso con rampa que T0
+// todavia no alcanzo y se ancla ahi la teorica. null = arranca en el paso 1.
+function alinearInicioPrograma(
+  pasos: Paso[],
+  historial: { t: number; temp: number }[]
+): { pasoInicial: number; anclaT: number; anclaTemp: number } | null {
+  const primero = historial[0]
+  const T0 = primero.temp
+  const primerActivo = pasos.findIndex(pasoActivo)
+  const k = pasos.findIndex(p => pasoActivo(p) && p.velocidad !== 0 &&
+    ((p.velocidad > 0 && T0 < p.temperatura) || (p.velocidad < 0 && T0 > p.temperatura)))
+  if (k < 0 || k === primerActivo) return null
+  const objetivo = pasos[k].temperatura
+  if (Math.abs(objetivo - T0) < 15) {
+    // Casi en el objetivo: anclar en el cruce y arrancar desde el paso siguiente
+    const sube = pasos[k].velocidad > 0
+    const cruce = historial.find(p => sube ? p.temp >= objetivo : p.temp <= objetivo)
+    const haySiguiente = pasos.slice(k + 1).some(pasoActivo)
+    if (cruce && haySiguiente) return { pasoInicial: k + 1, anclaT: cruce.t, anclaTemp: objetivo }
+  }
+  return { pasoInicial: k, anclaT: primero.t, anclaTemp: T0 }
 }
 
 // Tras resetear la app el snapshot queda 'directa' sin programa. Se busca la
@@ -179,10 +233,14 @@ export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snap
     if (!prog) return null
     if (sinFecha && !prog.pasos.some(p => p.temperatura >= maxReal - 20)) return null
     const tempInicio = snap.historialTemp[0].temp
-    const puntos = calcularCurvaTeorica(prog.pasos, tempInicio, snap.tInicio)
+    const alineado = alinearInicioPrograma(prog.pasos, snap.historialTemp)
+    const puntos = alineado
+      ? calcularCurvaTeorica(prog.pasos.slice(alineado.pasoInicial), alineado.anclaTemp, alineado.anclaT)
+      : calcularCurvaTeorica(prog.pasos, tempInicio, snap.tInicio)
     return {
       ...snap, modo: 'programa', programa: prog, puntosTeoricos: puntos, programaDesdeHistorial: true,
       ...(sinFecha ? { programaOrigenSinFecha: true } : {}),
+      ...(alineado ?? {}),
     }
   } catch {
     return null
@@ -210,7 +268,9 @@ promedio que logro el horno en ese tramo; "% de lo programado" compara esa
 rampa con la programada. "Velocidad sugerida" es 90% de la rampa real (un
 margen para no disparar la alarma); "mantener" = no hace falta cambiarla.
 
-Si hay AVISO sobre el programa, mencionarlo al inicio del analisis.
+Si hay AVISOs (sobre el programa o sobre la ventana de datos), mencionarlos
+al inicio del analisis. Los pasos "previa a la ventana" no tienen datos: no
+los analices; en PROGRAMA SUGERIDO llevan la velocidad programada.
 
 Genera un archivo PDF, tamano A4, uniendo todo esto en un solo informe.
 IMPORTANTE: el informe tiene que incluir texto de analisis escrito, en
@@ -228,8 +288,8 @@ Contenido del PDF:
   temperaturas objetivo y mesetas; solo cambia la velocidad, usando la
   velocidad sugerida donde la haya (donde dice "mantener", la misma
   velocidad programada).
-- La linea DURACION TOTAL DEL PROGRAMA (programada vs con velocidades
-  sugeridas).
+- La linea DURACION TOTAL DEL PROGRAMA, o DURACION RESTANTE si los datos
+  arrancan a mitad del programa (programada vs con velocidades sugeridas).
 - Despues de las tablas, un ANALISIS ESCRITO EN PROSA (texto corrido,
   no una lista):
   - Tramo por tramo: un parrafo corto por cada etapa con rampa, que diga
@@ -251,6 +311,12 @@ Contenido del PDF:
     } else if (snapshot.programaDesdeHistorial) {
       tablaPrograma += 'AVISO: programa tomado del equipo por nombre segun el historial. Si se edito despues de la horneada, los pasos pueden diferir de los que se usaron realmente.\n'
     }
+    const pIni = snapshot.pasoInicial ?? 0
+    if (pIni > 0 && snapshot.historialTemp.length > 0) {
+      const h = snapshot.historialTemp
+      const minCubiertos = Math.round((h[h.length - 1].t - h[0].t) / 60000)
+      tablaPrograma += `AVISO: la curva del equipo cubre solo ${minCubiertos} min desde ${Math.round(h[0].temp)} C. Pasos 1 a ${pIni} quedaron fuera de la ventana. El analisis cubre desde el paso ${pIni + 1}.\n`
+    }
     tablaPrograma += 'Paso | Velocidad (C/min) | Temp objetivo (C) | Meseta (min)\n'
     prog.pasos
       .filter(pasoActivo)
@@ -262,14 +328,24 @@ Contenido del PDF:
   let tablaResumen = 'RESUMEN POR ETAPA (rampa real vs programada, C/min)\n'
   tablaResumen += 'Paso | Tramo (C) | Programada(C/min) | Real(C/min) | % de lo programado | Estado | Velocidad sugerida(C/min)\n'
   if (prog) {
-    const resumen = calcularResumenEtapas(prog.pasos, snapshot.historialTemp, snapshot.puntosTeoricos[0]?.temp ?? 0, snapshot.tInicio)
+    const pIni = snapshot.pasoInicial ?? 0
+    const resumen = calcularResumenEtapas(
+      prog.pasos,
+      snapshot.historialTemp,
+      snapshot.anclaTemp ?? snapshot.puntosTeoricos[0]?.temp ?? 0,
+      snapshot.anclaT ?? snapshot.tInicio,
+      pIni
+    )
     let totalProgramadoMin = 0
     let totalSugeridoMin = 0
     for (const r of resumen) {
       const real = r.rampaRealCMin !== null ? r.rampaRealCMin.toFixed(1) : 's/d'
       const pct = r.pct !== null ? `${Math.round(r.pct)}%` : 's/d'
       const sug = r.velSugerida !== null ? r.velSugerida.toFixed(1) : 'mantener'
-      tablaResumen += `${r.paso} | ${r.desde}->${r.objetivo} | ${r.velProgramada.toFixed(1)} | ${real} | ${pct} | ${r.estado} | ${sug}\n`
+      tablaResumen += `${r.paso} | ${r.desde ?? '?'}->${r.objetivo} | ${r.velProgramada.toFixed(1)} | ${real} | ${pct} | ${r.estado} | ${sug}\n`
+
+      // Pasos previos a la ventana no suman a la duracion restante
+      if (r.paso - 1 < pIni || r.desde === null) continue
 
       // Duracion: rampa (|delta T| / velocidad) + meseta del paso
       const meseta = prog.pasos[r.paso - 1]?.tiempo ?? 0
@@ -279,11 +355,14 @@ Contenido del PDF:
       totalProgramadoMin += (r.tieneRampa ? deltaAbs / velProgAbs : 0) + meseta
       totalSugeridoMin += (r.tieneRampa ? deltaAbs / velSugAbs : 0) + meseta
     }
-    tablaResumen += 'Nota: la alarma de rampa lenta dispara si una etapa tarda 15 min mas que su duracion teorica (=|delta T|/velocidad programada). "riesgo alarma" = atraso mayor a 10 min.\n'
+    tablaResumen += 'Nota: la alarma de rampa lenta dispara si una etapa tarda 15 min mas que su duracion teorica (=|delta T|/velocidad programada). "riesgo alarma" = atraso mayor a 10 min. En etapa no alcanzada la sugerida sale del tramo recorrido; la capacidad del horno suele bajar al subir la temperatura (ver RANGOS).\n'
     const totProg = Math.round(totalProgramadoMin)
     const totSug = Math.round(totalSugeridoMin)
     const dif = totSug - totProg
-    tablaResumen += `DURACION TOTAL DEL PROGRAMA: programada ${totProg} min | con velocidades sugeridas ${totSug} min | diferencia ${dif >= 0 ? '+' : ''}${dif} min\n`
+    const tituloDuracion = pIni > 0
+      ? `DURACION RESTANTE DESDE EL PASO ${pIni + 1} (desde ${Math.round(snapshot.anclaTemp ?? 0)} C)`
+      : 'DURACION TOTAL DEL PROGRAMA'
+    tablaResumen += `${tituloDuracion}: programada ${totProg} min | con velocidades sugeridas ${totSug} min | diferencia ${dif >= 0 ? '+' : ''}${dif} min\n`
   }
 
   let tablaRangos = 'RANGOS DE TEMPERATURA - rampa observada (C/min): promedio por banda, minima y maxima en ventanas de 5 min\n'
