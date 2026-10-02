@@ -381,16 +381,31 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   },
 
   reemplazarCurvaCompleta: (hornoId, epoch, desde, tAncla, puntos) => {
-    const historial = puntos.map(p => ({ t: tAncla + p.m * 60000, temp: p.t }))
+    const delEquipo = puntos.map(p => ({ t: tAncla + p.m * 60000, temp: p.t }))
     const s = get()
+    // Microcorte: el firmware reanuda solo y su buffer arranca de nuevo con el mismo
+    // epoch. Conservar los puntos previos al primero del buffer en vez de pisarlos.
+    const prevEpoch = s.curvaEpochMap[hornoId] ?? null
+    const previo = s.historialTemps[hornoId] ?? []
+    let historial = delEquipo
+    let tInicioFinal = tAncla
+    if (previo.length > 0 && prevEpoch !== null && prevEpoch === epoch && delEquipo.length > 0) {
+      const conservados = previo.filter(p => p.t < delEquipo[0].t)
+      historial = [...conservados, ...delEquipo]
+      if (historial.length > MAX_HISTORIAL) {
+        historial = downsamplePorBuckets(historial, historial[0].t, Date.now(), MAX_HISTORIAL)
+      }
+      const tPrevio = s.tIniciosMap[hornoId]
+      if (conservados.length > 0 && tPrevio != null) tInicioFinal = tPrevio
+    }
     const historialTemps = { ...s.historialTemps, [hornoId]: historial }
     const curvaEpochMap  = { ...s.curvaEpochMap, [hornoId]: epoch }
     const curvaDesdeMap  = { ...s.curvaDesdeMap, [hornoId]: desde }
-    const tIniciosMap    = { ...s.tIniciosMap, [hornoId]: tAncla }
+    const tIniciosMap    = { ...s.tIniciosMap, [hornoId]: tInicioFinal }
     set({ historialTemps, historialTemp: historial, curvaEpochMap, curvaDesdeMap, tIniciosMap })
     try {
       localStorage.setItem(STORAGE_KEYS.CURVA(hornoId), JSON.stringify(historial))
-      localStorage.setItem(STORAGE_KEYS.CURVA_META(hornoId), JSON.stringify({ epoch, desde, t0: tAncla }))
+      localStorage.setItem(STORAGE_KEYS.CURVA_META(hornoId), JSON.stringify({ epoch, desde, t0: tInicioFinal }))
     } catch (e) {
       console.error('[reemplazarCurvaCompleta persist]', e)
     }
@@ -400,6 +415,19 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const id = hornoId
     const epochPrevio = get().curvaEpochMap[id] ?? null
     const esNuevoEpoch = epochPrevio === null || epochPrevio !== resp.epoch
+    // Microcorte: mismo epoch pero el buffer del firmware volvio a cero (total < desde).
+    // Pedir desde 0 en el proximo poll sin tocar el historial.
+    const desdePrevio = get().curvaDesdeMap[id] ?? 0
+    if (!esNuevoEpoch && resp.total < desdePrevio) {
+      set(s => ({ curvaDesdeMap: { ...s.curvaDesdeMap, [id]: 0 } }))
+      const t0Meta = resp.epoch > 1700000000 ? resp.epoch * 1000 : (get().tIniciosMap[id] ?? undefined)
+      try {
+        localStorage.setItem(STORAGE_KEYS.CURVA_META(id), JSON.stringify({ epoch: resp.epoch, desde: 0, t0: t0Meta }))
+      } catch (e) {
+        console.error('[aplicarCurvaFirmware meta persist]', e)
+      }
+      return
+    }
     if (!esNuevoEpoch && resp.pts.length === 0) return
 
     // Si el proceso reinició por "continuar" tras corte de luz, preservar los datos
@@ -428,7 +456,11 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const puntosNuevos = (esNuevoEpoch && esContinuar)
       ? []
       : resp.pts.map(p => ({ t: t0 + p.m * 60000, temp: p.t }))
-    const prev = (esNuevoEpoch && !esContinuar) ? [] : (get().historialTemps[id] ?? [])
+    let prev = (esNuevoEpoch && !esContinuar) ? [] : (get().historialTemps[id] ?? [])
+    // Buffer releido desde 0 (post microcorte): descartar lo que se solapa, sin duplicados ni desorden
+    if (!esNuevoEpoch && resp.desde === 0 && puntosNuevos.length > 0 && prev.length > 0) {
+      prev = prev.filter(p => p.t < puntosNuevos[0].t)
+    }
     const combinado = [...prev, ...puntosNuevos]
     const now = Date.now()
     // Usar el primer punto de la historia completa como base para el downsample
