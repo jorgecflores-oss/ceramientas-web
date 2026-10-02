@@ -164,8 +164,8 @@ export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snap
         Math.abs(b.timestamp * 1000 - snap.tInicio) < Math.abs(a.timestamp * 1000 - snap.tInicio) ? b : a
       )
     } else {
-      // Sin fecha: solo si ninguna entrada tiene fecha valida; se usa la mas reciente (indice 0)
-      if (lista.length === 0 || lista.some(h => fechaValida(h.timestamp))) return null
+      // Sin fecha: solo si la mas reciente (indice 0) no tiene fecha valida; las viejas no importan
+      if (lista.length === 0 || fechaValida(lista[0].timestamp)) return null
       entrada = lista[0]
       sinFecha = true
     }
