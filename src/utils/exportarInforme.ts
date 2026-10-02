@@ -1,5 +1,11 @@
 import type { Paso } from '../types/horno'
 import type { Snapshot } from '../store/hornoStore'
+import { getHistorial } from '../services/historialService'
+import { getProgramas } from '../services/hornoService'
+import { calcularCurvaTeorica } from './curvaTeorica'
+
+// Snapshot con programa recuperado del equipo (no del arranque real)
+export type SnapshotInforme = Snapshot & { programaDesdeHistorial?: boolean }
 
 const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
 
@@ -137,7 +143,36 @@ function calcularResumenEtapas(
   return resumen
 }
 
-export function exportarInformeHorneada(snapshot: Snapshot) {
+// Tras resetear la app el snapshot queda 'directa' sin programa. Se busca la
+// horneada en el historial del equipo por fecha y se toma el programa por nombre.
+export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snapshot): Promise<SnapshotInforme | null> {
+  try {
+    if (snap.modo === 'programa' || snap.historialTemp.length === 0) return null
+    const MARGEN_MS = 30 * 60000
+    const lastT = snap.historialTemp[snap.historialTemp.length - 1].t
+    const lista = await getHistorial(hornoId)
+    const candidatas = lista.filter(h => {
+      const ms = h.timestamp * 1000
+      return ms >= snap.tInicio - MARGEN_MS && ms <= lastT + MARGEN_MS
+    })
+    if (candidatas.length === 0) return null
+    const entrada = candidatas.reduce((a, b) =>
+      Math.abs(b.timestamp * 1000 - snap.tInicio) < Math.abs(a.timestamp * 1000 - snap.tInicio) ? b : a
+    )
+    const nombre = entrada.programa.trim().toLowerCase()
+    if (!nombre) return null
+    const programas = await getProgramas(hornoId)
+    const prog = programas.find(p => (p.nombre ?? '').trim().toLowerCase() === nombre)
+    if (!prog) return null
+    const tempInicio = snap.historialTemp[0].temp
+    const puntos = calcularCurvaTeorica(prog.pasos, tempInicio, snap.tInicio)
+    return { ...snap, modo: 'programa', programa: prog, puntosTeoricos: puntos, programaDesdeHistorial: true }
+  } catch {
+    return null
+  }
+}
+
+export function exportarInformeHorneada(snapshot: SnapshotInforme) {
   const prog = snapshot.programa
   const fecha = fechaISO(snapshot.tInicio)
   const nombreArchivo = `horneada_${fecha}_${slug(prog?.nombre ?? 'programa')}.txt`
@@ -157,6 +192,8 @@ atraso de una etapa no se arrastra a las siguientes. "Real" es la rampa
 promedio que logro el horno en ese tramo; "% de lo programado" compara esa
 rampa con la programada. "Velocidad sugerida" es 90% de la rampa real (un
 margen para no disparar la alarma); "mantener" = no hace falta cambiarla.
+
+Si hay AVISO sobre el programa, mencionarlo al inicio del analisis.
 
 Genera un archivo PDF, tamano A4, uniendo todo esto en un solo informe.
 IMPORTANTE: el informe tiene que incluir texto de analisis escrito, en
@@ -192,6 +229,9 @@ Contenido del PDF:
   let tablaPrograma = 'PROGRAMA: (sin datos)\n'
   if (prog) {
     tablaPrograma = `PROGRAMA: ${prog.nombre}\n`
+    if (snapshot.programaDesdeHistorial) {
+      tablaPrograma += 'AVISO: programa tomado del equipo por nombre segun el historial. Si se edito despues de la horneada, los pasos pueden diferir de los que se usaron realmente.\n'
+    }
     tablaPrograma += 'Paso | Velocidad (C/min) | Temp objetivo (C) | Meseta (min)\n'
     prog.pasos
       .filter(pasoActivo)

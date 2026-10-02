@@ -10,7 +10,7 @@ import { feedbackBoton } from '../utils/feedback'
 import { STORAGE_KEYS } from '../utils/constants'
 import type { PuntoCurva, Programa } from '../types/horno'
 import { esProcesoActivo, esProgramaActivo } from '../types/horno'
-import { exportarInformeHorneada, exportarCurvaHorno } from '../utils/exportarInforme'
+import { exportarInformeHorneada, exportarCurvaHorno, resolverProgramaDesdeHistorial } from '../utils/exportarInforme'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
   for (let i = 1; i < puntos.length; i++) {
@@ -83,6 +83,7 @@ export function HornoPage() {
   const [modalTermocupla, setModalTermocupla]   = useState(false)
   const [modalConfirmarTermocupla, setModalConfirmarTermocupla] = useState(false)
   const [modalNtfy, setModalNtfy]               = useState(false)
+  const [exportando, setExportando]             = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; tipo: 'info' | 'warn' | 'error' }[]>([])
 
   useEffect(() => {
@@ -370,6 +371,21 @@ export function HornoPage() {
       } catch (e) {
         alert('Error enviando comando')
       }
+    }
+  }
+
+  // Snapshot 'directa' (p. ej. tras resetear la app): intentar recuperar el
+  // programa desde el historial del equipo; si no hay coincidencia, curva libre.
+  async function exportar() {
+    if (!snapshot || !horno) return
+    if (snapshot.modo === 'programa') { exportarInformeHorneada(snapshot); return }
+    setExportando(true)
+    try {
+      const r = await resolverProgramaDesdeHistorial(horno.hornoId, snapshot)
+      if (r) exportarInformeHorneada(r)
+      else exportarCurvaHorno(snapshot)
+    } finally {
+      setExportando(false)
     }
   }
 
@@ -861,10 +877,11 @@ export function HornoPage() {
       {!enProceso && snapshot && (
         <div className="flex justify-center mb-4">
           <button
-            onClick={() => snapshot.modo === 'directa' ? exportarCurvaHorno(snapshot) : exportarInformeHorneada(snapshot)}
-            className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 active:scale-95 rounded-lg font-semibold tracking-wide transition-all duration-75 border border-neutral-700"
+            onClick={exportar}
+            disabled={exportando}
+            className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 active:scale-95 rounded-lg font-semibold tracking-wide transition-all duration-75 border border-neutral-700 disabled:opacity-50"
           >
-            {snapshot.modo === 'directa' ? 'Exportar curva del horno' : 'Exportar informe'}
+            {exportando ? 'Preparando...' : snapshot.modo === 'directa' ? 'Exportar informe / curva' : 'Exportar informe'}
           </button>
         </div>
       )}
