@@ -197,14 +197,35 @@ function alinearInicioPrograma(
   return { pasoInicial: k, anclaT: primero.t, anclaTemp: T0 }
 }
 
+// Motivo por el que fallo el ultimo intento de recuperar el programa ('' = no fallo
+// o no se intento). exportarCurvaHorno lo muestra como AVISO.
+export let ultimoMotivoRecuperacion = ''
+
+function fallaRecuperacion(motivo: string): null {
+  // ASCII: el motivo va al archivo exportado (mensajes de error pueden traer tildes)
+  ultimoMotivoRecuperacion = motivo.normalize('NFD').replace(/[^\x20-\x7e]/g, '')
+  console.warn('[INFORME_RECUPERAR]', ultimoMotivoRecuperacion)
+  return null
+}
+
+const mensajeError = (e: unknown) => e instanceof Error ? e.message : String(e)
+
 // Tras resetear la app el snapshot queda 'directa' sin programa. Se busca la
 // horneada en el historial del equipo por fecha y se toma el programa por nombre.
 export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snapshot): Promise<SnapshotInforme | null> {
+  ultimoMotivoRecuperacion = ''
   try {
-    if (snap.modo === 'programa' || snap.historialTemp.length === 0) return null
+    if (snap.modo === 'programa') return fallaRecuperacion('chequeo modo: el snapshot ya tiene programa')
+    if (snap.historialTemp.length === 0) return fallaRecuperacion('chequeo curva: el snapshot no tiene puntos reales')
     const MARGEN_MS = 30 * 60000
     const lastT = snap.historialTemp[snap.historialTemp.length - 1].t
-    const lista = await getHistorial(hornoId)
+    let lista: Awaited<ReturnType<typeof getHistorial>>
+    try {
+      lista = await getHistorial(hornoId)
+    } catch (e) {
+      return fallaRecuperacion(`sin historial del equipo, error al pedirlo: ${mensajeError(e)}`)
+    }
+    if (lista.length === 0) return fallaRecuperacion('el historial del equipo esta vacio')
     // Fecha valida: timestamp no nulo y posterior a 2020 (sin NTP el equipo guarda 0 o epoch chico)
     const fechaValida = (ts: number) => !!ts && ts >= 1577836800
     const candidatas = lista.filter(h => {
@@ -219,19 +240,34 @@ export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snap
       )
     } else {
       // Sin fecha: solo si la mas reciente (indice 0) no tiene fecha valida; las viejas no importan
-      if (lista.length === 0 || fechaValida(lista[0].timestamp)) return null
+      if (fechaValida(lista[0].timestamp)) {
+        const haySinFecha = lista.some(h => !fechaValida(h.timestamp))
+        return fallaRecuperacion(haySinFecha
+          ? 'la entrada sin fecha no es la mas reciente (la mas reciente tiene fecha y cae fuera de la ventana de +-30 min)'
+          : 'sin entrada candidata: ninguna entrada con fecha valida cae dentro de la ventana de +-30 min de la curva')
+      }
       entrada = lista[0]
       sinFecha = true
     }
     const nombre = entrada.programa.trim().toLowerCase()
-    if (!nombre) return null
+    if (!nombre) return fallaRecuperacion('chequeo nombre: la entrada del historial no tiene nombre de programa')
     const maxReal = Math.max(...snap.historialTemp.map(p => p.temp))
     // La entrada cubre la horneada completa; la curva puede ser solo un tramo
-    if (sinFecha && !(entrada.tempMax >= maxReal - 10)) return null
-    const programas = await getProgramas(hornoId)
+    if (sinFecha && !(entrada.tempMax >= maxReal - 10)) {
+      return fallaRecuperacion(`fallo validacion de temperatura: tempMax de la entrada ${Math.round(entrada.tempMax)} C, maximo real ${Math.round(maxReal)} C`)
+    }
+    let programas: Awaited<ReturnType<typeof getProgramas>>
+    try {
+      programas = await getProgramas(hornoId)
+    } catch (e) {
+      return fallaRecuperacion(`error al pedir los programas del equipo: ${mensajeError(e)}`)
+    }
     const prog = programas.find(p => (p.nombre ?? '').trim().toLowerCase() === nombre)
-    if (!prog) return null
-    if (sinFecha && !prog.pasos.some(p => p.temperatura >= maxReal - 20)) return null
+    if (!prog) return fallaRecuperacion(`ningun programa del equipo se llama "${entrada.programa.trim()}"`)
+    if (!prog.pasos.some(pasoActivo)) return fallaRecuperacion(`el programa "${prog.nombre}" no tiene pasos utiles`)
+    if (sinFecha && !prog.pasos.some(p => p.temperatura >= maxReal - 20)) {
+      return fallaRecuperacion(`fallo validacion de temperatura: ningun paso de "${prog.nombre}" llega a ${Math.round(maxReal - 20)} C (maximo real ${Math.round(maxReal)} C)`)
+    }
     const tempInicio = snap.historialTemp[0].temp
     const alineado = alinearInicioPrograma(prog.pasos, snap.historialTemp)
     const puntos = alineado
@@ -242,8 +278,8 @@ export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snap
       ...(sinFecha ? { programaOrigenSinFecha: true } : {}),
       ...(alineado ?? {}),
     }
-  } catch {
-    return null
+  } catch (e) {
+    return fallaRecuperacion(`error inesperado: ${mensajeError(e)}`)
   }
 }
 
@@ -456,6 +492,9 @@ Genera un archivo PDF, tamano A4, con:
     tablaDatos += `${minuto}, ${p.temp}\n`
   }
 
-  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${tablaRangos}\n${tablaDatos}`
+  const aviso = ultimoMotivoRecuperacion
+    ? `AVISO: no se pudo recuperar el programa del historial (motivo: ${ultimoMotivoRecuperacion}). El analisis es solo de capacidad del horno.\n\n`
+    : ''
+  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${aviso}${tablaRangos}\n${tablaDatos}`
   descargarTexto(nombreArchivo, contenido)
 }
