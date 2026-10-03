@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useHornoStore, anclaCurva, UMBRAL_REBASE_MS } from '../store/hornoStore'
+import { useHornoStore, anclaCurva, UMBRAL_REBASE_MS, UNIX_MINIMO } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
 import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
@@ -627,8 +627,19 @@ export function HornoPage() {
         if (hornoId) {
           const histActual = useHornoStore.getState().historialTemps[hornoId] ?? []
           if (histActual.length > 0) {
+            // Con epoch Unix guardado decide el resync: mismo epoch conserva y traslada
+            // (tras un corte el reloj del equipo quedó rearmado y procesoMs es menor que el
+            // tiempo real), epoch distinto reemplaza todo. Sin epoch: borrar por antigüedad.
+            let epochGuardado = useHornoStore.getState().curvaEpochMap[hornoId] ?? null
+            if (epochGuardado === null) {
+              try {
+                const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(hornoId))
+                if (metaRaw) epochGuardado = (JSON.parse(metaRaw) as { epoch?: number }).epoch ?? null
+              } catch { /* meta ilegible: sin epoch guardado */ }
+            }
+            const hayEpochUnix = epochGuardado !== null && epochGuardado > UNIX_MINIMO
             const cutoffT = Date.now() - procesoMs - 5 * 60000
-            if (histActual[histActual.length - 1].t < cutoffT) resetHistorial()
+            if (!hayEpochUnix && histActual[histActual.length - 1].t < cutoffT) resetHistorial()
           }
         }
         if (actualPrograma) {

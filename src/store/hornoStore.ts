@@ -119,7 +119,7 @@ interface HornoState {
 const MAX_HISTORIAL = 500
 
 // Umbral 1700000000 (~nov 2023): descarta epoch/t0 sin NTP (0) o derivados de millis().
-const UNIX_MINIMO = 1700000000
+export const UNIX_MINIMO = 1700000000
 // Diferencia de ancla a partir de la cual se considera que el equipo re-basó su reloj.
 export const UMBRAL_REBASE_MS = 5 * 60000
 
