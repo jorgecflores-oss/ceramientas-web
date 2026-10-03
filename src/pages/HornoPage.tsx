@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useHornoStore, anclaCurva } from '../store/hornoStore'
+import { useHornoStore, anclaCurva, UMBRAL_REBASE_MS } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
 import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
@@ -408,7 +408,16 @@ export function HornoPage() {
       if (todos.length) {
         // Reanudación: el equipo re-basó su reloj → corregir ancla, historial y teórica antes del merge
         const respAncla = { epoch: epochBuffer, t0: t0Buffer }
-        useHornoStore.getState().rebasarCurva(hornoId, respAncla)
+        // Firmware sin t0: tras un corte, epoch es el arranque original pero el reloj del
+        // equipo (horas/minutos y m de /curva) quedó rearmado. Si tAncla (ahora − tiempo del
+        // equipo) se aleja de epoch, usarlo como t0 sintético. curvaEpochMap sigue con epoch real.
+        const t0Valido = t0Buffer !== undefined && t0Buffer > 1700000000
+        const activo = esProcesoActivo(useHornoStore.getState().estados[hornoId]?.estado ?? null)
+        if (!t0Valido && epochBuffer > 1700000000 && activo
+            && Math.abs(epochBuffer * 1000 - tAncla) > UMBRAL_REBASE_MS) {
+          respAncla.t0 = Math.round(tAncla / 1000)
+        }
+        useHornoStore.getState().rebasarCurva(hornoId, respAncla, todos[0].m)
         const anclaReal = anclaCurva(respAncla) ?? tAncla
         useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, anclaReal, todos)
         return todos[0].t
@@ -475,7 +484,7 @@ export function HornoPage() {
       const anclaPrevia = s.tIniciosMap[hornoId]
       const anclaPost = useHornoStore.getState().tIniciosMap[hornoId]
       const huboRebase = anclaPrevia != null && anclaPost != null
-        && Math.abs(anclaPost - anclaPrevia) > 5 * 60000
+        && Math.abs(anclaPost - anclaPrevia) > UMBRAL_REBASE_MS
       // Ancla cacheada solo vale si el epoch del buffer coincide — mismo
       // arranque de horno, no una horneada vieja pisando la nueva.
       const mismaHorneada = anclaCacheada && primerTemp !== null

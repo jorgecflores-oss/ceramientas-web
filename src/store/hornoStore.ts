@@ -102,7 +102,7 @@ interface HornoState {
   pushTemp: (temp: number) => void
   reemplazarCurvaCompleta: (hornoId: string, epoch: number, desde: number, tAncla: number, puntos: { m: number; t: number }[]) => void
   aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; t0?: number; total: number; desde: number; pts: { m: number; t: number }[] }) => void
-  rebasarCurva: (hornoId: string, resp: { epoch: number; t0?: number }) => boolean
+  rebasarCurva: (hornoId: string, resp: { epoch: number; t0?: number }, primerM?: number) => boolean
   flushHistorial: () => void
   resetHistorial: () => void
   setProgramas: (p: Programa[]) => void
@@ -121,7 +121,19 @@ const MAX_HISTORIAL = 500
 // Umbral 1700000000 (~nov 2023): descarta epoch/t0 sin NTP (0) o derivados de millis().
 const UNIX_MINIMO = 1700000000
 // Diferencia de ancla a partir de la cual se considera que el equipo re-basó su reloj.
-const UMBRAL_REBASE_MS = 5 * 60000
+export const UMBRAL_REBASE_MS = 5 * 60000
+
+// Ancla con la que están ubicados los puntos del historial: tIniciosMap, o
+// CURVA_META.t0 de la misma horneada si clearCurvaTeorica ya lo nulleó.
+function anclaGuardada(tInicio: number | null | undefined, hornoId: string, epoch: number): number | null {
+  if (tInicio != null) return tInicio
+  try {
+    const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(hornoId))
+    const meta = metaRaw ? JSON.parse(metaRaw) as { epoch: number; t0?: number } : null
+    if (meta && meta.epoch === epoch && typeof meta.t0 === 'number') return meta.t0
+  } catch { /* meta ilegible: sin ancla previa */ }
+  return null
+}
 
 // Ancla del eje de la curva (ms). Preferir t0 (origen del reloj del proceso: tras
 // reanudar, bufferCurva.m cuenta desde ahí) sobre epoch (fecha original de arranque).
@@ -429,16 +441,23 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const id = hornoId
     const epochPrevio = get().curvaEpochMap[id] ?? null
     const esNuevoEpoch = epochPrevio === null || epochPrevio !== resp.epoch
-    // Re-base: el equipo movió el origen de su reloj (reanudación). Va antes de los
-    // returns tempranos para que marcador y teórica se corrijan aunque no haya puntos nuevos.
-    get().rebasarCurva(id, resp)
-    const ancla = anclaCurva(resp)
+    // Re-base: el equipo movió el origen de su reloj (reanudación). Necesita el primer
+    // punto del buffer nuevo: sin puntos en la respuesta no hace nada y espera al próximo poll.
+    get().rebasarCurva(id, resp, resp.pts[0]?.m)
+    let ancla = anclaCurva(resp)
+    const guardada = anclaGuardada(get().tIniciosMap[id], id, resp.epoch)
+    // Sin t0 (firmware viejo) el ancla sale de epoch. Si la guardada ya fue re-basada
+    // (difiere de epoch más que el umbral), conservarla: el poll no deshace el re-base.
+    const t0Valido = resp.t0 !== undefined && resp.t0 > UNIX_MINIMO
+    if (!t0Valido && !esNuevoEpoch && ancla !== null && guardada !== null
+        && Math.abs(guardada - ancla) > UMBRAL_REBASE_MS) ancla = guardada
     // Microcorte: mismo epoch pero el buffer del firmware volvio a cero (total < desde).
     // Pedir desde 0 en el proximo poll sin tocar el historial.
     const desdePrevio = get().curvaDesdeMap[id] ?? 0
     if (!esNuevoEpoch && resp.total < desdePrevio) {
       set(s => ({ curvaDesdeMap: { ...s.curvaDesdeMap, [id]: 0 } }))
-      const t0Meta = ancla ?? (get().tIniciosMap[id] ?? undefined)
+      // Ancla guardada primero: el re-base (si toca) todavía no corrió y la necesita intacta.
+      const t0Meta = guardada ?? ancla ?? undefined
       try {
         localStorage.setItem(STORAGE_KEYS.CURVA_META(id), JSON.stringify({ epoch: resp.epoch, desde: 0, t0: t0Meta }))
       } catch (e) {
@@ -465,7 +484,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     let t0 = ancla ?? (tGuardado ?? Date.now())
     // t0 del firmware oscila ±1 s entre respuestas (dos truncados a segundos):
     // si coincide con el ancla guardada, conservarla para no correr los puntos.
-    if (resp.t0 !== undefined && resp.t0 > UNIX_MINIMO && tGuardado !== null && Math.abs(t0 - tGuardado) <= 2000) t0 = tGuardado
+    if (t0Valido && tGuardado !== null && Math.abs(t0 - tGuardado) <= 2000) t0 = tGuardado
     // Post corte de luz sin epoch válido (NTP no sincronizado aún al reiniciar):
     // fallback a heurística previa — T_continue estimado desde tiempo actual.
     if (!epochValido && esNuevoEpoch && esContinuar) {
@@ -520,28 +539,32 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     }, 2000)
   },
 
-  rebasarCurva: (hornoId, resp) => {
-    // Solo con t0 del firmware: con firmware viejo (sin t0) no hay re-base.
+  rebasarCurva: (hornoId, resp, primerM) => {
+    // Solo con t0 (del firmware, o sintético armado en resincronizarCurvaReal).
     if (resp.t0 === undefined || resp.t0 <= UNIX_MINIMO) return false
+    // Sin puntos nuevos no se sabe dónde arranca el buffer: esperar al primer poll con puntos.
+    if (primerM === undefined) return false
     const ancla = resp.t0 * 1000
     const s = get()
     // Misma horneada (o "continuar" pendiente): una horneada nueva reemplaza todo por su cuenta.
     const mismoEpoch = (s.curvaEpochMap[hornoId] ?? null) === resp.epoch
     if (!mismoEpoch && !(s.continuarEpoch[hornoId] ?? false)) return false
-    // Ancla guardada: tIniciosMap, o CURVA_META.t0 si clearCurvaTeorica ya lo nulleó.
-    let tPrevio = s.tIniciosMap[hornoId] ?? null
-    if (tPrevio === null) {
-      try {
-        const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(hornoId))
-        const meta = metaRaw ? JSON.parse(metaRaw) as { epoch: number; t0?: number } : null
-        if (meta && meta.epoch === resp.epoch && typeof meta.t0 === 'number') tPrevio = meta.t0
-      } catch { /* meta ilegible: sin ancla previa */ }
-    }
+    const tPrevio = anclaGuardada(s.tIniciosMap[hornoId], hornoId, resp.epoch)
     if (tPrevio === null || Math.abs(ancla - tPrevio) <= UMBRAL_REBASE_MS) return false
 
     console.log('[CURVA_REBASE]', hornoId, 'ancla', tPrevio, '→', ancla)
-    // Puntos anteriores al nuevo origen quedan fuera del eje: descartarlos.
-    const historial = (s.historialTemps[hornoId] ?? []).filter(p => p.t >= ancla - 60000)
+    // Puntos previos al buffer nuevo: trasladarlos con el ancla para que queden en su
+    // minuto de programa original. Los que ya están en el reloj nuevo no se tocan.
+    const delta = ancla - tPrevio
+    const tCorte = ancla + primerM * 60000
+    const historial: { t: number; temp: number }[] = []
+    for (const p of s.historialTemps[hornoId] ?? []) {
+      if (p.t >= tCorte - 60000) { historial.push(p); continue }
+      const t = p.t + delta
+      // Trasladado que cae sobre el buffer nuevo: se solapa, queda el del equipo.
+      if (t < tCorte) historial.push({ t, temp: p.temp })
+    }
+    historial.sort((a, b) => a.t - b.t)
     const historialTemps = { ...s.historialTemps, [hornoId]: historial }
     const tIniciosMap = { ...s.tIniciosMap, [hornoId]: ancla }
     const esActivo = s.hornoActivoId === hornoId
