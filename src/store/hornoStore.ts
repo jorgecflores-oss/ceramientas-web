@@ -494,7 +494,10 @@ export const useHornoStore = create<HornoState>((set, get) => ({
 
     // Al detectar el nuevo epoch post-continuación, descartar los pts del fetch viejo
     // (pedíamos desde=N del epoch anterior; reset a 0 para re-fetchear el nuevo desde el inicio).
-    const puntosNuevos = (esNuevoEpoch && esContinuar)
+    // Lo mismo con epoch nuevo sin "continuar" si el fetch no arrancó en 0 (desde quedó de la
+    // horneada anterior): historial vacío y desde=0, el próximo poll trae la curva entera.
+    const descartarFetch = esNuevoEpoch && (esContinuar || resp.desde > 0)
+    const puntosNuevos = descartarFetch
       ? []
       : resp.pts.map(p => ({ t: t0 + p.m * 60000, temp: p.t }))
     let prev = (esNuevoEpoch && !esContinuar) ? [] : (get().historialTemps[id] ?? [])
@@ -513,14 +516,14 @@ export const useHornoStore = create<HornoState>((set, get) => ({
 
     const historialTemps = { ...get().historialTemps, [id]: nuevo }
     const curvaEpochMap  = { ...get().curvaEpochMap, [id]: resp.epoch }
-    // Post-continuación: resetear desde=0 para re-fetchear el nuevo epoch desde el inicio.
-    const curvaDesdeMap = (esNuevoEpoch && esContinuar)
+    // Fetch descartado: resetear desde=0 para re-fetchear el nuevo epoch desde el inicio.
+    const curvaDesdeMap = descartarFetch
       ? { ...get().curvaDesdeMap, [id]: 0 }
       : { ...get().curvaDesdeMap, [id]: resp.desde + resp.pts.length }
     const tIniciosMap    = { ...get().tIniciosMap, [id]: t0 }
     set({ historialTemps, historialTemp: nuevo, curvaEpochMap, curvaDesdeMap, tIniciosMap })
 
-    const desdeGuardar = (esNuevoEpoch && esContinuar) ? 0 : resp.desde + resp.pts.length
+    const desdeGuardar = descartarFetch ? 0 : resp.desde + resp.pts.length
     try {
       localStorage.setItem(
         STORAGE_KEYS.CURVA_META(id),
