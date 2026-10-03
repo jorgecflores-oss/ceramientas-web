@@ -64,6 +64,7 @@ export async function deleteHistorial(hornoId: string) {
 export async function getCurva(hornoId: string, desde: number = 0) {
   return (await hornoRequest(hornoId, `curva?desde=${desde}`, 'GET')).data as {
     epoch: number
+    t0?: number
     total: number
     desde: number
     pts: { m: number; t: number }[]

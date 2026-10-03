@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useHornoStore } from '../store/hornoStore'
+import { useHornoStore, anclaCurva } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
 import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
@@ -393,18 +393,23 @@ export function HornoPage() {
     try {
       let desde = 0
       let epochBuffer = 0
+      let t0Buffer: number | undefined
       let totalBuffer = 0
       let todos: { m: number; t: number }[] = []
       for (let i = 0; i < 15; i++) {
-        const curva = await getCurva(hornoId, desde) as { epoch: number; total: number; desde: number; pts: { m: number; t: number }[] }
+        const curva = await getCurva(hornoId, desde)
         epochBuffer = curva.epoch
+        t0Buffer = curva.t0
         totalBuffer = curva.total
         todos = todos.concat(curva.pts)
         desde = curva.desde + curva.pts.length
         if (curva.pts.length === 0 || desde >= totalBuffer) break
       }
       if (todos.length) {
-        const anclaReal = epochBuffer > 1700000000 ? epochBuffer * 1000 : tAncla
+        // Reanudación: el equipo re-basó su reloj → corregir ancla, historial y teórica antes del merge
+        const respAncla = { epoch: epochBuffer, t0: t0Buffer }
+        useHornoStore.getState().rebasarCurva(hornoId, respAncla)
+        const anclaReal = anclaCurva(respAncla) ?? tAncla
         useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, anclaReal, todos)
         return todos[0].t
       }
@@ -466,10 +471,15 @@ export function HornoPage() {
       tAncla = tCapture - procesoMs
       const primerTemp = await resincronizarCurvaReal(hornoId, tAncla)
       const epochNuevo = useHornoStore.getState().curvaEpochMap[hornoId] ?? null
+      // `s` es anterior al resync: si el equipo re-basó su reloj, el ancla cacheada ya no vale.
+      const anclaPrevia = s.tIniciosMap[hornoId]
+      const anclaPost = useHornoStore.getState().tIniciosMap[hornoId]
+      const huboRebase = anclaPrevia != null && anclaPost != null
+        && Math.abs(anclaPost - anclaPrevia) > 5 * 60000
       // Ancla cacheada solo vale si el epoch del buffer coincide — mismo
       // arranque de horno, no una horneada vieja pisando la nueva.
       const mismaHorneada = anclaCacheada && primerTemp !== null
-        && epochPrevio !== null && epochPrevio === epochNuevo
+        && epochPrevio !== null && epochPrevio === epochNuevo && !huboRebase
       if (mismaHorneada) {
         yaHayAncla = true
         tAncla = s.tIniciosMap[hornoId]!

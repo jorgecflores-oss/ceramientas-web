@@ -101,7 +101,8 @@ interface HornoState {
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
   pushTemp: (temp: number) => void
   reemplazarCurvaCompleta: (hornoId: string, epoch: number, desde: number, tAncla: number, puntos: { m: number; t: number }[]) => void
-  aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; total: number; desde: number; pts: { m: number; t: number }[] }) => void
+  aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; t0?: number; total: number; desde: number; pts: { m: number; t: number }[] }) => void
+  rebasarCurva: (hornoId: string, resp: { epoch: number; t0?: number }) => boolean
   flushHistorial: () => void
   resetHistorial: () => void
   setProgramas: (p: Programa[]) => void
@@ -116,6 +117,19 @@ interface HornoState {
 }
 
 const MAX_HISTORIAL = 500
+
+// Umbral 1700000000 (~nov 2023): descarta epoch/t0 sin NTP (0) o derivados de millis().
+const UNIX_MINIMO = 1700000000
+// Diferencia de ancla a partir de la cual se considera que el equipo re-basó su reloj.
+const UMBRAL_REBASE_MS = 5 * 60000
+
+// Ancla del eje de la curva (ms). Preferir t0 (origen del reloj del proceso: tras
+// reanudar, bufferCurva.m cuenta desde ahí) sobre epoch (fecha original de arranque).
+// Firmware viejo no manda t0 → epoch. Sin ninguno válido → null (fallback del llamador).
+export function anclaCurva(resp: { epoch: number; t0?: number }): number | null {
+  if (resp.t0 !== undefined && resp.t0 > UNIX_MINIMO) return resp.t0 * 1000
+  return resp.epoch > UNIX_MINIMO ? resp.epoch * 1000 : null
+}
 
 function downsamplePorBuckets(
   puntos: { t: number; temp: number }[],
@@ -415,12 +429,16 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const id = hornoId
     const epochPrevio = get().curvaEpochMap[id] ?? null
     const esNuevoEpoch = epochPrevio === null || epochPrevio !== resp.epoch
+    // Re-base: el equipo movió el origen de su reloj (reanudación). Va antes de los
+    // returns tempranos para que marcador y teórica se corrijan aunque no haya puntos nuevos.
+    get().rebasarCurva(id, resp)
+    const ancla = anclaCurva(resp)
     // Microcorte: mismo epoch pero el buffer del firmware volvio a cero (total < desde).
     // Pedir desde 0 en el proximo poll sin tocar el historial.
     const desdePrevio = get().curvaDesdeMap[id] ?? 0
     if (!esNuevoEpoch && resp.total < desdePrevio) {
       set(s => ({ curvaDesdeMap: { ...s.curvaDesdeMap, [id]: 0 } }))
-      const t0Meta = resp.epoch > 1700000000 ? resp.epoch * 1000 : (get().tIniciosMap[id] ?? undefined)
+      const t0Meta = ancla ?? (get().tIniciosMap[id] ?? undefined)
       try {
         localStorage.setItem(STORAGE_KEYS.CURVA_META(id), JSON.stringify({ epoch: resp.epoch, desde: 0, t0: t0Meta }))
       } catch (e) {
@@ -437,13 +455,17 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       set(s => ({ continuarEpoch: { ...s.continuarEpoch, [id]: false } }))
     }
 
-    // Ancla real: preferir epoch del firmware (hist_timestamp_inicio, Unix real)
+    // Ancla real: preferir la del firmware (t0, o epoch = hist_timestamp_inicio, Unix real)
     // sobre heurísticas de reloj del cliente. Mismo valor para cualquier dispositivo,
     // sin importar cuándo se conectó — corrige corrimiento del cero entre dispositivos.
     // Umbral 1700000000 (~nov 2023): un millis() que lo cruce necesitaría >2 años
     // de uptime sin reboot, descarta falso positivo en modo Conexión Directa.
-    const epochValido = resp.epoch > 1700000000
-    let t0 = epochValido ? resp.epoch * 1000 : (get().tIniciosMap[id] ?? Date.now())
+    const epochValido = ancla !== null
+    const tGuardado = get().tIniciosMap[id] ?? null
+    let t0 = ancla ?? (tGuardado ?? Date.now())
+    // t0 del firmware oscila ±1 s entre respuestas (dos truncados a segundos):
+    // si coincide con el ancla guardada, conservarla para no correr los puntos.
+    if (resp.t0 !== undefined && resp.t0 > UNIX_MINIMO && tGuardado !== null && Math.abs(t0 - tGuardado) <= 2000) t0 = tGuardado
     // Post corte de luz sin epoch válido (NTP no sincronizado aún al reiniciar):
     // fallback a heurística previa — T_continue estimado desde tiempo actual.
     if (!epochValido && esNuevoEpoch && esContinuar) {
@@ -496,6 +518,57 @@ export const useHornoStore = create<HornoState>((set, get) => ({
         console.error('[aplicarCurvaFirmware persist]', e)
       }
     }, 2000)
+  },
+
+  rebasarCurva: (hornoId, resp) => {
+    // Solo con t0 del firmware: con firmware viejo (sin t0) no hay re-base.
+    if (resp.t0 === undefined || resp.t0 <= UNIX_MINIMO) return false
+    const ancla = resp.t0 * 1000
+    const s = get()
+    // Misma horneada (o "continuar" pendiente): una horneada nueva reemplaza todo por su cuenta.
+    const mismoEpoch = (s.curvaEpochMap[hornoId] ?? null) === resp.epoch
+    if (!mismoEpoch && !(s.continuarEpoch[hornoId] ?? false)) return false
+    // Ancla guardada: tIniciosMap, o CURVA_META.t0 si clearCurvaTeorica ya lo nulleó.
+    let tPrevio = s.tIniciosMap[hornoId] ?? null
+    if (tPrevio === null) {
+      try {
+        const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(hornoId))
+        const meta = metaRaw ? JSON.parse(metaRaw) as { epoch: number; t0?: number } : null
+        if (meta && meta.epoch === resp.epoch && typeof meta.t0 === 'number') tPrevio = meta.t0
+      } catch { /* meta ilegible: sin ancla previa */ }
+    }
+    if (tPrevio === null || Math.abs(ancla - tPrevio) <= UMBRAL_REBASE_MS) return false
+
+    console.log('[CURVA_REBASE]', hornoId, 'ancla', tPrevio, '→', ancla)
+    // Puntos anteriores al nuevo origen quedan fuera del eje: descartarlos.
+    const historial = (s.historialTemps[hornoId] ?? []).filter(p => p.t >= ancla - 60000)
+    const historialTemps = { ...s.historialTemps, [hornoId]: historial }
+    const tIniciosMap = { ...s.tIniciosMap, [hornoId]: ancla }
+    const esActivo = s.hornoActivoId === hornoId
+    set({ historialTemps, tIniciosMap, ...(esActivo ? { historialTemp: historial } : {}) })
+
+    // Teórica: la anclada al origen viejo ya no vale → recalcular con el ancla nueva
+    // (mismo programa y misma temperatura de arranque que usa el equipo al reconstruir).
+    const programa = s.programasActivos[hornoId] ?? null
+    const tempInicio = s.tempIniciosMap[hornoId] ?? null
+    if (programa && tempInicio !== null) {
+      const puntos = calcularCurvaTeorica(programa.pasos, tempInicio, ancla)
+      const puntosTeoricosMap = { ...get().puntosTeoricosMap, [hornoId]: puntos }
+      set({ puntosTeoricosMap, ...(esActivo ? { puntosTeoricos: puntos, tInicio: ancla } : {}) })
+    }
+    try {
+      if (programa && tempInicio !== null) {
+        const anclaNueva: AnclaStorage = { timestampInicio: ancla, tempInicio, programa }
+        localStorage.setItem(STORAGE_KEYS.INICIO(hornoId), JSON.stringify(anclaNueva))
+      }
+      localStorage.setItem(STORAGE_KEYS.CURVA(hornoId), JSON.stringify(historial))
+      localStorage.setItem(STORAGE_KEYS.CURVA_META(hornoId), JSON.stringify({
+        epoch: s.curvaEpochMap[hornoId] ?? resp.epoch, desde: s.curvaDesdeMap[hornoId] ?? 0, t0: ancla,
+      }))
+    } catch (e) {
+      console.error('[rebasarCurva persist]', e)
+    }
+    return true
   },
 
   flushHistorial: () => {
