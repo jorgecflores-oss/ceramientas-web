@@ -33,6 +33,28 @@ function limpiarNombre(s: string): { limpio: string; quitados: boolean; recortad
   return { limpio, quitados: sinProhibidos !== s, recortado: limpio !== sinProhibidos }
 }
 
+// Motivos de reinicio que publica el firmware en /info ("reset" y "resets")
+const MOTIVOS_RESET: Record<string, string> = {
+  'power-on': 'encendido / corte de luz',
+  'watchdog-tarea': 'watchdog (se colgó)',
+  'watchdog-interrupcion': 'watchdog (interrupción)',
+  'watchdog': 'watchdog',
+  'brownout-caida-tension': 'caída de tensión',
+  'software': 'reinicio por software',
+  'panic': 'error interno',
+  'reset-externo': 'reset externo',
+  'desconocido': 'desconocido',
+}
+
+// "*" al final = había horneada activa. Motivo que no está en la tabla se muestra tal cual.
+function traducirReset(crudo: string): string {
+  const limpio = crudo.trim()
+  const conHorneada = limpio.endsWith('*')
+  const motivo = conHorneada ? limpio.slice(0, -1).trim() : limpio
+  const texto = MOTIVOS_RESET[motivo] ?? motivo
+  return conHorneada ? `${texto} (con horneada activa)` : texto
+}
+
 type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
 type WifiStep = null | 'detectando' | 'listo' | 'instrucciones'
 
@@ -52,7 +74,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [consumo, setConsumo] = useState('')
   const [limites, setLimites] = useState<LimitesConfig>(LIMITES_LEGACY)
   const [versionFw, setVersionFw] = useState<string | null>(null)
-  const [resetsFw, setResetsFw] = useState<string | null>(null)
+  const [resetsFw, setResetsFw] = useState<{ ultimo?: string; historial?: string[]; aviso?: string } | null>(null)
   const [cargandoResets, setCargandoResets] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [confirmarDesvincular, setConfirmarDesvincular] = useState(false)
@@ -101,9 +123,12 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     try {
       const resp = await hornoRequest(horno.hornoId, 'info', 'GET')
       const d = resp.data as { reset?: string; resets?: string }
-      setResetsFw(d.resets || (d.reset ? `${d.reset} (solo el último)` : 'no disponible en este firmware'))
+      const historial = (d.resets ?? '').split(',').map(r => r.trim()).filter(Boolean).map(traducirReset)
+      const ultimo = d.reset?.trim() ? traducirReset(d.reset) : (historial[0] ?? null)
+      // Firmware viejo sin esos campos: no hay líneas de reinicio para mostrar
+      setResetsFw(ultimo ? { ultimo, historial } : { aviso: 'no disponible en este firmware' })
     } catch {
-      setResetsFw('sin respuesta del horno')
+      setResetsFw({ aviso: 'sin respuesta del horno' })
     } finally {
       setCargandoResets(false)
     }
@@ -695,10 +720,16 @@ export function ConfigPage({ onAgregarHorno }: Props) {
           <button onClick={verResets} className="text-xs text-neutral-500 underline">
             {cargandoResets ? 'Consultando…' : 'Ver últimos reinicios del controlador'}
           </button>
-          {resetsFw !== null && (
-            <p className="text-xs text-neutral-400 mt-1 break-all">
-              {resetsFw}{' '}
-              <span className="text-neutral-600">(más nuevo primero · * = había horneada activa)</span>
+          {resetsFw?.aviso && (
+            <p className="text-xs text-neutral-400 mt-1">{resetsFw.aviso}</p>
+          )}
+          {resetsFw?.ultimo && (
+            <p className="text-xs text-neutral-400 mt-1">Último reinicio: {resetsFw.ultimo}</p>
+          )}
+          {resetsFw?.historial && resetsFw.historial.length > 0 && (
+            <p className="text-xs text-neutral-400 mt-1">
+              Historial: {resetsFw.historial.join(' · ')}{' '}
+              <span className="text-neutral-600">(más nuevo primero)</span>
             </p>
           )}
         </div>
