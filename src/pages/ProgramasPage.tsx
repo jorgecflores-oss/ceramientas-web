@@ -10,11 +10,16 @@ import type { Programa, Paso } from '../types/horno'
 const pasoActivo = (p: Paso) => Boolean(p) && (p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0)
 const tieneActivos = (prog: Programa) => Array.isArray(prog?.pasos) && prog.pasos.some(p => p != null && pasoActivo(p))
 
+// Signo de la rampa según la dirección de temperatura respecto del paso anterior:
+// sube → positiva, baja → negativa. Misma regla que normalizarSignosPasos del firmware.
+// Temperatura igual, temperatura 0 (paso fin) o velocidad 0: sin cambio. El paso 0 no se toca.
 function normalizarSignosRampa(pasos: Paso[]): Paso[] {
   return pasos.map((paso, i) => {
-    if (i === 0) return paso
+    if (i === 0 || paso.velocidad === 0 || paso.temperatura === 0) return paso
     const anterior = pasos[i - 1]
-    if (paso.velocidad > 0 && paso.temperatura < anterior.temperatura) {
+    const sube = paso.temperatura > anterior.temperatura
+    const baja = paso.temperatura < anterior.temperatura
+    if ((sube && paso.velocidad < 0) || (baja && paso.velocidad > 0)) {
       return { ...paso, velocidad: -paso.velocidad }
     }
     return paso
