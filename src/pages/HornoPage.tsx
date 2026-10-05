@@ -480,6 +480,11 @@ export function HornoPage() {
       tAncla = tCapture - procesoMs
       const primerTemp = await resincronizarCurvaReal(hornoId, tAncla)
       const epochNuevo = useHornoStore.getState().curvaEpochMap[hornoId] ?? null
+      // tempInicio guardado antes del resync: vale si el epoch no cambió (misma horneada),
+      // aunque el re-base haya invalidado el ancla de tiempo.
+      const tempMismaHorneada =
+        (epochPrevio !== null && epochPrevio === epochNuevo)
+          ? (s.tempIniciosMap[hornoId] ?? null) : null
       // `s` es anterior al resync: si el equipo re-basó su reloj, el ancla cacheada ya no vale.
       const anclaPrevia = s.tIniciosMap[hornoId]
       const anclaPost = useHornoStore.getState().tIniciosMap[hornoId]
@@ -497,8 +502,10 @@ export function HornoPage() {
         // Preferir curvaMeta.tempInicio (temperatura al arranque real de la horneada,
         // persistida en NVS por el firmware) sobre primerTemp (primer punto del buffer
         // actual, que puede ser post-reboot y no reflejar el inicio de la horneada).
+        // Sin curvaMeta, el tempInicio previo de la misma horneada sigue siendo mejor
+        // que primerTemp (tras un corte es la temperatura al reanudar, no la de arranque).
         const metaAncla = curvaMetaRef.current
-        tempAncla = (metaAncla?.tempInicio != null) ? metaAncla.tempInicio : primerTemp
+        tempAncla = metaAncla?.tempInicio ?? tempMismaHorneada ?? primerTemp
         const anclaCorregida = useHornoStore.getState().tIniciosMap[hornoId]
         if (anclaCorregida != null) tAncla = anclaCorregida
       } else {
