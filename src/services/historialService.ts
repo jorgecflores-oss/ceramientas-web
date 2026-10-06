@@ -7,6 +7,7 @@ function motivoDesdeEstado(estado?: number, motivo?: string): string {
   if (estado === 0) return 'normal'
   if (estado === 1) return 'detenido'
   if (estado === 2) return 'emergencia'
+  if (estado === 8) return 'alarma_sensor'
   return 'normal'
 }
 

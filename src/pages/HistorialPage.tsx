@@ -9,6 +9,7 @@ const MOTIVO_INFO: Record<string, { texto: string; color: string }> = {
   normal:               { texto: '✓ Finalizado normalmente', color: 'text-green-500'  },
   alarma_exceso:        { texto: '⚠ Exceso de temp. final',  color: 'text-yellow-500' },
   alarma_critica:       { texto: '🚨 Temp. máxima superada', color: 'text-red-500'    },
+  alarma_sensor:        { texto: '🚨 Falla de sensor (termocupla)', color: 'text-red-500' },
   detenido:             { texto: '⏹ Detenido (origen no registrado)', color: 'text-blue-400'   },
   detenido_remoto:      { texto: '⏹ Detenido desde la app',           color: 'text-blue-400'   },
   detenido_boton:       { texto: '⏹ Detenido en el controlador',      color: 'text-blue-400'   },

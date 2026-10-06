@@ -7,6 +7,7 @@ export type EstadoHorno =
   | 'finalizado'
   | 'alarma_exceso'
   | 'alarma_critica'
+  | 'alarma_sensor'
   | 'detenido_manualmente'
   | 'emergencia'
   | 'error'
@@ -133,6 +134,7 @@ export type TipoNotif =
   | 'fin'
   | 'alarma_critica'
   | 'alarma_exceso'
+  | 'alarma_sensor'
   | 'detenido'
 
 export interface NotifMQTT {

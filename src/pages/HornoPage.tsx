@@ -328,6 +328,8 @@ export function HornoPage() {
         mostrarToast(`${horno.nombre}: ${notif.msg ?? 'Horneado finalizado'}`, 'info')
       } else if (notif.tipo === 'alarma_critica') {
         mostrarToast(`${horno.nombre}: ${notif.msg ?? '¡ALARMA! Temperatura máxima superada'}`, 'error')
+      } else if (notif.tipo === 'alarma_sensor') {
+        mostrarToast(`${horno.nombre}: ${notif.msg ?? 'Sensor de temperatura con falla'}`, 'error')
       } else if (notif.tipo === 'alarma_exceso') {
         mostrarToast(`${horno.nombre}: ${notif.msg ?? 'Exceso de temperatura final'}`, 'warn')
       } else if (notif.tipo === 'rampa_lenta') {
@@ -624,7 +626,8 @@ export function HornoPage() {
     const actualPrograma = esProgramaActivo(estadoActual)
     const actualInactivo = estadoActual === 'idle' || estadoActual === 'finalizado' ||
       estadoActual === 'detenido_manualmente' || estadoActual === 'alarma_exceso' ||
-      estadoActual === 'alarma_critica' || estadoActual === 'emergencia' || estadoActual === 'error'
+      estadoActual === 'alarma_critica' || estadoActual === 'alarma_sensor' ||
+      estadoActual === 'emergencia' || estadoActual === 'error'
 
     const iniciarSesionDirecta = () => {
       resetHistorial()
@@ -735,6 +738,8 @@ export function HornoPage() {
     estadoTxt === 'finalizado' ||
     estadoTxt === 'alarma_exceso' ||
     estadoTxt === 'alarma_critica'
+  // Falla de sensor (firmware 3.6.4+): no es un final OK, va con LED rojo y banner propio
+  const esFallaSensor = estadoTxt === 'alarma_sensor'
 
   const VENTANA_MQTT = 60_000
   const VENTANA_LOCAL = 30_000
@@ -768,9 +773,9 @@ export function HornoPage() {
             color={estadoConexion === 'online' ? 'bg-green-500' : estadoConexion === 'local' ? 'bg-blue-400' : 'bg-neutral-600'}
           />
           <LedEstado
-            activo={enProceso || finalizadoOK}
-            label={enDirecta ? 'Relevando horno' : enProceso ? 'Horneando' : finalizadoOK ? 'Finalizado' : 'Detenido'}
-            color={enProceso ? 'bg-orange-500' : finalizadoOK ? 'bg-green-500' : 'bg-neutral-600'}
+            activo={enProceso || finalizadoOK || esFallaSensor}
+            label={esFallaSensor ? 'Falla de sensor' : enDirecta ? 'Relevando horno' : enProceso ? 'Horneando' : finalizadoOK ? 'Finalizado' : 'Detenido'}
+            color={esFallaSensor ? 'bg-red-500' : enProceso ? 'bg-orange-500' : finalizadoOK ? 'bg-green-500' : 'bg-neutral-600'}
           />
           <LedEstado
             activo={estado?.rele ?? false}
@@ -860,6 +865,13 @@ export function HornoPage() {
           snapshot={snapshot}
         />
       </div>
+
+      {/* Falla de sensor: sin botón, se resetea en el controlador (UP+DOWN) */}
+      {esFallaSensor && (
+        <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-4">
+          <p className="text-red-400 font-semibold">🚨 FALLA DE SENSOR — Horno detenido. Revisar termocupla antes de volver a encender.</p>
+        </div>
+      )}
 
       {estado?.corteLuz && (
         <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-4 flex items-center justify-between">
