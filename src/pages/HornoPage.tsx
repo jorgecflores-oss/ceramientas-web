@@ -75,6 +75,8 @@ export function HornoPage() {
   type CurvaMetaPaso = { v: number; t: number; d: number }
   type CurvaMetaPayload = { nombre: string; idx: number; tempInicio?: number; pasos: CurvaMetaPaso[] }
   const curvaMetaRef = useRef<CurvaMetaPayload | null>(null)
+  // tempInicio capturado antes del clearCurvaTeorica() de la reapertura con proceso activo
+  const tempInicioPreviaRef = useRef<{ hornoId: string; temp: number } | null>(null)
 
   const [xAhora, setXAhora] = useState<number | undefined>(undefined)
   const [, setTick] = useState(0)
@@ -482,9 +484,13 @@ export function HornoPage() {
       const epochNuevo = useHornoStore.getState().curvaEpochMap[hornoId] ?? null
       // tempInicio guardado antes del resync: vale si el epoch no cambió (misma horneada),
       // aunque el re-base haya invalidado el ancla de tiempo.
+      // En reapertura en frío el map ya fue nulleado por clearCurvaTeorica(): usar la captura.
+      const tempPrevia = tempInicioPreviaRef.current
+      tempInicioPreviaRef.current = null
       const tempMismaHorneada =
         (epochPrevio !== null && epochPrevio === epochNuevo)
-          ? (s.tempIniciosMap[hornoId] ?? null) : null
+          ? (s.tempIniciosMap[hornoId] ??
+            (tempPrevia?.hornoId === hornoId ? tempPrevia.temp : null)) : null
       // `s` es anterior al resync: si el equipo re-basó su reloj, el ancla cacheada ya no vale.
       const anclaPrevia = s.tIniciosMap[hornoId]
       const anclaPost = useHornoStore.getState().tIniciosMap[hornoId]
@@ -504,6 +510,10 @@ export function HornoPage() {
         // actual, que puede ser post-reboot y no reflejar el inicio de la horneada).
         // Sin curvaMeta, el tempInicio previo de la misma horneada sigue siendo mejor
         // que primerTemp (tras un corte es la temperatura al reanudar, no la de arranque).
+        // curvaMeta es retained y puede llegar después del estado: esperarlo hasta 3 s.
+        for (let i = 0; i < 12 && curvaMetaRef.current === null; i++) {
+          await new Promise(resolve => setTimeout(resolve, 250))
+        }
         const metaAncla = curvaMetaRef.current
         tempAncla = metaAncla?.tempInicio ?? tempMismaHorneada ?? primerTemp
         const anclaCorregida = useHornoStore.getState().tIniciosMap[hornoId]
@@ -630,6 +640,10 @@ export function HornoPage() {
       } else {
         // Limpiar curva vieja de localStorage antes del resync — evita mostrar la curva
         // de una sesión/programa anterior mientras se cargan los datos reales del firmware
+        // Antes de limpiar: guardar el tempInicio previo, que el clear nullea.
+        const tempPrevia = hornoId ? useHornoStore.getState().tempIniciosMap[hornoId] : null
+        tempInicioPreviaRef.current = (hornoId && actualPrograma && tempPrevia != null)
+          ? { hornoId, temp: tempPrevia } : null
         clearCurvaTeorica()
         if (hornoId) {
           const histActual = useHornoStore.getState().historialTemps[hornoId] ?? []
