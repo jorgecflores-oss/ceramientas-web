@@ -250,6 +250,14 @@ PWA debe funcionar 3 escenarios:
 - Si el local no coincide con `tempObj` del firmware (estado obsoleto): hace GET /programas al firmware y usa `progs[idxExacto]` de la EEPROM.
 - Si es predefinido (idx < 4 o sin ULTIMO_PROG): lógica original — busca en todos los locales, fallback a fetch si no hay match.
 
+### Curva teórica — temperatura de ancla al reabrir (HornoPage)
+- Ruta: `useEffect` de estado, rama `prev === null && actualActivo` con `procesoMs > 0` → `clearCurvaTeorica()` → `calcularYGuardarCurva(false)` (único llamador con `esNuevo=false`).
+- `clearCurvaTeorica()` nullea `tIniciosMap`/`tempIniciosMap` y borra `STORAGE_KEYS.INICIO`. Por eso, dentro de `calcularYGuardarCurva`, `anclaCacheada`, `mismaHorneada` y `huboRebase` dan siempre false en esta ruta: toda reapertura (con o sin corte) cae al `else if (primerTemp !== null)` o al `else` sin datos.
+- `tempInicioPreviaRef` guarda `tempIniciosMap[hornoId]` justo antes del clear (solo modo programa). `calcularYGuardarCurva` lo lee y lo pone en null antes del resync.
+- Prioridad de `tempAncla` en el `else if`: `curvaMeta.tempInicio` → `tempMismaHorneada` (map previo o la ref, solo con `epochPrevio === epochNuevo`) → `primerTemp` (primer punto del buffer; tras un corte es la temperatura al reanudar).
+- Antes de leer `curvaMeta` espera hasta 3 s (12 × 250 ms) si todavía no llegó el retained.
+- `tAncla` sale del `tIniciosMap` posterior a `resincronizarCurvaReal` (ya re-basado si corresponde).
+
 ### CurvaGrafico (CurvaGrafico.tsx)
 - Guard cambiado a `puntosEf.length === 0 && !hayTeoricoEf`: si hay curva teórica calculada pero aún no llegó ningún dato real (programa recién arrancado o app abierta mid-process), muestra el gráfico con solo la curva teórica en lugar de "Sin datos aún".
 - `maxTempReal` protegido con `puntosEf.length > 0 ? ... : 0` para evitar `Math.max()` vacío.
@@ -297,6 +305,12 @@ El browser no puede recibir UDP (puerto 5005 que usa el Android). Solución en d
 
 ### Técnico
 
+- **Teórica al reabrir — rama sin datos** — en `calcularYGuardarCurva`, el `else` (resync sin puntos) solo usa `curvaMeta.tempInicio`; si no hay curvaMeta hace `return` sin mirar `tempMismaHorneada`. Reabrir tras un corte con resync fallido y sin curvaMeta deja la pantalla sin teórica.
+- **Teórica al reabrir — espera de 3 s** — con firmware que no publica `curvaMeta`, toda reapertura en frío demora 3 s la teórica. Se puede saltear la espera cuando `tempMismaHorneada` ya tiene valor.
+- **Teórica al reabrir — `tempInicio` malo ya guardado** — si una reapertura previa al fix del 2026-10-05 guardó en `INICIO` la temperatura de reanudación, `tempInicioPreviaRef` la toma como buena hasta que llegue `curvaMeta` o arranque otra horneada.
+- **Teórica al reabrir — `mismaHorneada` inalcanzable** — por el `clearCurvaTeorica()` previo, esa rama y `huboRebase` nunca se cumplen. Código muerto en la práctica; decidir si se elimina o si se captura también `tIniciosMap` antes del clear.
+- **Horneada nueva (`esNuevo && !keepHistorial`)** — `tempAncla = primerTempReal` directo, sin preferir `curvaMeta.tempInicio`.
+- **Verificación pendiente** — los commits `bad6f4c` y `f3d53a2` se hicieron sin `npm run build` (prompts NO COMPILAR). Falta build y prueba en horno real.
 - **Bundle size** — Recharts + MQTT.js son las causas principales. Solución: dynamic import de Recharts (`React.lazy`) para code-split. No es bloqueante pero afecta TTI en conexiones lentas.
 - **Deploy** — actualmente manual (`git push` → GitHub Actions). El workflow ya está en `.github/workflows/deploy.yml`. URL: `https://jorgecflores-oss.github.io/ceramientas-web/`.
 
