@@ -789,17 +789,30 @@ export function HornoPage() {
         <div className="p-6">
           {estado?.zonas && estado.zonas.length > 1 ? (
             <div className="grid grid-cols-2 gap-3">
-              {estado.zonas.map((zona) => (
+              {estado.zonas.map((zona) => {
+                // Falla de zona: fz > 0 o lectura centinela (-999). Solo con la zona online.
+                const fz = zona.fz ?? 0
+                const zonaConFalla = zona.online && (fz > 0 || zona.temp <= -900)
+                const textoFalla =
+                  fz === 1 ? 'Termocupla abierta' :
+                  fz === 2 ? 'Alarma de sensor' :
+                  fz === 3 ? 'Sobretemperatura' :
+                  'Sin lectura'
+                return (
                 <div
                   key={zona.id}
-                  className={`rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-center ${zona.online ? '' : 'opacity-40'}`}
+                  className={`rounded-xl border ${zonaConFalla ? 'border-red-500' : 'border-neutral-800'} bg-neutral-950 p-3 text-center ${zona.online ? '' : 'opacity-40'}`}
                 >
                   <p className="text-xs text-neutral-500 uppercase tracking-wider mb-1">
                     {zona.id === 0 ? 'Maestro' : `Zona ${zona.id}`}
                   </p>
                   {zona.online ? (
                     <>
-                      <p className="text-3xl font-bold">{zona.temp}<span className="text-base text-neutral-400 align-top">°C</span></p>
+                      {zonaConFalla ? (
+                        <p className="text-xs font-semibold text-red-500 py-2.5">{textoFalla}</p>
+                      ) : (
+                        <p className="text-3xl font-bold">{zona.temp}<span className="text-base text-neutral-400 align-top">°C</span></p>
+                      )}
                       <p className={`text-xs mt-1 ${zona.rele ? 'text-orange-400' : 'text-neutral-500'}`}>
                         {zona.rele ? 'Resist. ON' : 'Resist. OFF'}
                       </p>
@@ -808,7 +821,8 @@ export function HornoPage() {
                     <p className="text-sm text-neutral-500 mt-3">sin conexión</p>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <p className="text-6xl font-bold text-center">{temp}<span className="text-2xl text-neutral-400 align-top">°C</span></p>

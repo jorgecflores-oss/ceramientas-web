@@ -37,6 +37,7 @@ export interface EstadoZona {
   temp: number
   rele: boolean
   online: boolean
+  fz?: number  // falla de zona: 0 normal, 1 termocupla abierta, 2 alarma sensor, 3 sobretemperatura
 }
 
 export interface EstadoMQTT {
