@@ -48,33 +48,44 @@ export function getHistorialCache(hornoId: string): Horneada[] {
   return []
 }
 
+// Dos entradas pueden compartir timestamp (p. ej. "Sin fecha" = 0). La primera
+// conserva id = String(timestamp) para que los borrados ya guardados sigan valiendo;
+// las siguientes llevan sufijo #n según el orden recibido.
+function asignarIdsUnicos(lista: Horneada[]): Horneada[] {
+  const vistos = new Map<number, number>()
+  return lista.map(r => {
+    const n = vistos.get(r.timestamp) ?? 0
+    vistos.set(r.timestamp, n + 1)
+    return n === 0 ? r : { ...r, id: `${r.timestamp}#${n}` }
+  })
+}
+
 export async function getHistorial(hornoId: string): Promise<Horneada[]> {
   const deleted = getDeletedSet(hornoId)
   try {
     const res = await hornoRequest(hornoId, 'historial', 'GET')
     const data = res.data as { registros: HorneadaFirmware[] }
-    let lista = (data.registros ?? []).map(normalizarESP32)
-    if (deleted.size > 0) lista = lista.filter(r => !deleted.has(String(r.timestamp)))
+    let lista = asignarIdsUnicos((data.registros ?? []).map(normalizarESP32))
+    if (deleted.size > 0) lista = lista.filter(r => !deleted.has(r.id))
     try {
       localStorage.setItem(STORAGE_KEYS.HISTORIAL_CACHE(hornoId), JSON.stringify(lista))
     } catch {}
     return lista
   } catch {
     const cached = getHistorialCache(hornoId)
-    if (deleted.size > 0) return cached.filter(r => !deleted.has(String(r.timestamp)))
+    if (deleted.size > 0) return cached.filter(r => !deleted.has(r.id))
     return cached
   }
 }
 
-export function deleteHistorialItem(hornoId: string, timestamp: number): void {
-  const ts = String(timestamp)
+export function deleteHistorialItem(hornoId: string, id: string): void {
   const deleted = getDeletedSet(hornoId)
-  deleted.add(ts)
+  deleted.add(id)
   saveDeletedSet(hornoId, deleted)
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.HISTORIAL_CACHE(hornoId))
     if (raw) {
-      const lista = (JSON.parse(raw) as Horneada[]).filter(r => String(r.timestamp) !== ts)
+      const lista = (JSON.parse(raw) as Horneada[]).filter(r => r.id !== id)
       localStorage.setItem(STORAGE_KEYS.HISTORIAL_CACHE(hornoId), JSON.stringify(lista))
     }
   } catch {}

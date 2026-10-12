@@ -66,7 +66,7 @@ export function HistorialPage() {
 
   const [historial, setHistorial] = useState<Horneada[]>([])
   const [cargando, setCargando] = useState(false)
-  const [expandido, setExpandido] = useState<string | null>(null)
+  const [expandido, setExpandido] = useState<Set<string>>(new Set())
   const [confirmarBorrarTodo, setConfirmarBorrarTodo] = useState(false)
   const [confirmarBorrarItem, setConfirmarBorrarItem] = useState<Horneada | null>(null)
 
@@ -89,6 +89,14 @@ export function HistorialPage() {
     if (cached.length > 0) setHistorial(cached)
     cargar()
   }, [cargar, horno?.hornoId])
+
+  const alternarExpandido = (id: string) => {
+    setExpandido(prev => {
+      const nuevo = new Set(prev)
+      if (!nuevo.delete(id)) nuevo.add(id)
+      return nuevo
+    })
+  }
 
   const totalKwh   = historial.reduce((s, h) => s + (h.kWhConsumidos || 0), 0)
   const totalCosto = historial.reduce((s, h) => s + (h.costo         || 0), 0)
@@ -154,19 +162,19 @@ export function HistorialPage() {
         <div className="space-y-2">
           {historial.map(item => {
             const info = MOTIVO_INFO[item.motivo] ?? { texto: item.motivo || 'Desconocido', color: 'text-neutral-400' }
-            const abierta = expandido === item.id
+            const abierta = expandido.has(item.id)
 
             return (
               <div key={item.id} className="bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden">
                 <div
-                  onClick={() => setExpandido(abierta ? null : item.id)}
+                  onClick={() => alternarExpandido(item.id)}
                   className="w-full p-3 flex items-start justify-between text-left cursor-pointer"
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      setExpandido(abierta ? null : item.id)
+                      alternarExpandido(item.id)
                     }
                   }}
                 >
@@ -243,8 +251,15 @@ export function HistorialPage() {
           onCancelar={() => setConfirmarBorrarItem(null)}
           onConfirmar={() => {
             if (horno) {
-              deleteHistorialItem(horno.hornoId, confirmarBorrarItem.timestamp)
-              setHistorial(prev => prev.filter(r => r.timestamp !== confirmarBorrarItem.timestamp))
+              const id = confirmarBorrarItem.id
+              deleteHistorialItem(horno.hornoId, id)
+              setHistorial(prev => prev.filter(r => r.id !== id))
+              setExpandido(prev => {
+                if (!prev.has(id)) return prev
+                const nuevo = new Set(prev)
+                nuevo.delete(id)
+                return nuevo
+              })
             }
             setConfirmarBorrarItem(null)
           }}
