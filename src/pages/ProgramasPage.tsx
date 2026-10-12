@@ -5,6 +5,7 @@ import { fetchProgramasOnce, postComando, postPrograma, deletePrograma } from '.
 import { publicarComando } from '../services/mqttService'
 import { STORAGE_KEYS } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
+import { CONOS_ORTON, conoDeTemperatura } from '../utils/conos'
 import type { Programa, Paso } from '../types/horno'
 
 const pasoActivo = (p: Paso) => Boolean(p) && (p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0)
@@ -72,6 +73,29 @@ function mensajeErrorGuardado(msg: string, nombre: string): string {
   return msg
 }
 
+// Reemplaza al input Temp cuando el paso está en modo cono. Solo UI: lo que se guarda son grados.
+// Si la temperatura no coincide exacto con un cono queda en "Cono…" y no se toca hasta elegir.
+function SelectorCono({ temperatura, onElegir, onFocus }: {
+  temperatura: number; onElegir: (temp: number) => void; onFocus?: () => void
+}) {
+  return (
+    <select
+      value={conoDeTemperatura(temperatura) ?? ''}
+      onChange={e => {
+        const elegido = CONOS_ORTON.find(c => c.cono === e.target.value)
+        if (elegido) onElegir(elegido.temp)
+      }}
+      onFocus={onFocus}
+      className="flex-1 min-w-0 px-1 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+    >
+      <option value="">Cono…</option>
+      {CONOS_ORTON.map(c => (
+        <option key={c.cono} value={c.cono}>{`${c.cono} · ${c.temp}°`}</option>
+      ))}
+    </select>
+  )
+}
+
 export function ProgramasPage() {
   const horno = useHornoStore(s => s.hornoActivo)
   const programas = useHornoStore(s => s.programas)
@@ -84,12 +108,12 @@ export function ProgramasPage() {
   const [confirmarBorrar, setConfirmarBorrar] = useState<number | null>(null)
 
   // Modal edición pasos (solo programas custom idx >= 4)
-  const [editPasos, setEditPasos] = useState<{ idx: number; nombre: string; pasos: Paso[]; velTexto: string[] } | null>(null)
+  const [editPasos, setEditPasos] = useState<{ idx: number; nombre: string; pasos: Paso[]; velTexto: string[]; conoModo: boolean[] } | null>(null)
   const [ultimoPasoFocus, setUltimoPasoFocus] = useState<number | null>(null)
   const [guardandoPasos, setGuardandoPasos] = useState(false)
 
   // Modal nuevo programa
-  const [nuevoPrograma, setNuevoPrograma] = useState<{ nombre: string; pasos: Paso[]; velTexto: string[] } | null>(null)
+  const [nuevoPrograma, setNuevoPrograma] = useState<{ nombre: string; pasos: Paso[]; velTexto: string[]; conoModo: boolean[] } | null>(null)
   const [guardandoNuevo, setGuardandoNuevo] = useState(false)
 
   useEffect(() => {
@@ -199,6 +223,7 @@ export function ProgramasPage() {
       ...nuevoPrograma,
       pasos: [...nuevoPrograma.pasos, { velocidad: ultimo.velocidad, temperatura: 0, tiempo: 0 }],
       velTexto: [...nuevoPrograma.velTexto, ultimo.velocidad.toFixed(1)],
+      conoModo: [...nuevoPrograma.conoModo, false],
     })
   }
 
@@ -208,7 +233,13 @@ export function ProgramasPage() {
       ...nuevoPrograma,
       pasos: nuevoPrograma.pasos.filter((_, i) => i !== pasoIdx),
       velTexto: nuevoPrograma.velTexto.filter((_, i) => i !== pasoIdx),
+      conoModo: nuevoPrograma.conoModo.filter((_, i) => i !== pasoIdx),
     })
+  }
+
+  function alternarConoNuevo(pasoIdx: number) {
+    if (!nuevoPrograma) return
+    setNuevoPrograma({ ...nuevoPrograma, conoModo: nuevoPrograma.conoModo.map((m, i) => i === pasoIdx ? !m : m) })
   }
 
   async function guardarNuevo() {
@@ -274,14 +305,18 @@ export function ProgramasPage() {
     const nuevoTexto = (velDefault / 10).toFixed(1)
     const pasosActivos  = editPasos.pasos.slice(0, activos)
     const textosActivos = editPasos.velTexto.slice(0, activos)
+    const conosActivos  = editPasos.conoModo.slice(0, activos)
     const pasosActivosNuevo  = [...pasosActivos.slice(0, insertAt), nuevoPaso, ...pasosActivos.slice(insertAt)]
     const textosActivosNuevo = [...textosActivos.slice(0, insertAt), nuevoTexto, ...textosActivos.slice(insertAt)]
+    const conosActivosNuevo  = [...conosActivos.slice(0, insertAt), false, ...conosActivos.slice(insertAt)]
     const faltantes = 6 - pasosActivosNuevo.length
     const relleno: Paso[]        = Array.from({ length: faltantes }, () => ({ velocidad: 0, temperatura: 0, tiempo: 0 }))
     const rellenoTexto: string[] = Array.from({ length: faltantes }, () => '0.0')
+    const rellenoCono: boolean[] = Array.from({ length: faltantes }, () => false)
     const nuevosPasos  = [...pasosActivosNuevo, ...relleno]
     const nuevosTextos = [...textosActivosNuevo, ...rellenoTexto]
-    setEditPasos({ ...editPasos, pasos: nuevosPasos, velTexto: nuevosTextos })
+    const nuevosConos  = [...conosActivosNuevo, ...rellenoCono]
+    setEditPasos({ ...editPasos, pasos: nuevosPasos, velTexto: nuevosTextos, conoModo: nuevosConos })
     setUltimoPasoFocus(insertAt)
   }
 
@@ -289,11 +324,18 @@ export function ProgramasPage() {
     if (!editPasos) return
     const restantes = editPasos.pasos.filter((_, i) => i !== idx)
     const restantesTexto = editPasos.velTexto.filter((_, i) => i !== idx)
+    const restantesCono = editPasos.conoModo.filter((_, i) => i !== idx)
     while (restantes.length < 6) {
       restantes.push({ velocidad: 0, temperatura: 0, tiempo: 0 })
       restantesTexto.push('0.0')
+      restantesCono.push(false)
     }
-    setEditPasos({ ...editPasos, pasos: restantes, velTexto: restantesTexto })
+    setEditPasos({ ...editPasos, pasos: restantes, velTexto: restantesTexto, conoModo: restantesCono })
+  }
+
+  function alternarCono(pasoIdx: number) {
+    if (!editPasos) return
+    setEditPasos({ ...editPasos, conoModo: editPasos.conoModo.map((m, i) => i === pasoIdx ? !m : m) })
   }
 
   const programasVisibles = programas
@@ -314,7 +356,7 @@ export function ProgramasPage() {
           <button
             onClick={() => {
               if (slotLibre() === null) { alert('No hay slots disponibles (máximo 40 programas)'); return }
-              setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 1, temperatura: 600, tiempo: 0 }], velTexto: ['1.0'] })
+              setNuevoPrograma({ nombre: '', pasos: [{ velocidad: 1, temperatura: 600, tiempo: 0 }], velTexto: ['1.0'], conoModo: [false] })
             }}
             className="px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-full text-sm font-semibold transition"
           >
@@ -358,6 +400,7 @@ export function ProgramasPage() {
                           nombre: p.nombre,
                           pasos: [...p.pasos],
                           velTexto: p.pasos.map(pp => (pp.velocidad / 10).toFixed(1)),
+                          conoModo: p.pasos.map(() => false),
                         })
                         setUltimoPasoFocus(null)
                       }}
@@ -387,14 +430,20 @@ export function ProgramasPage() {
                 </div>
 
                 <div className="space-y-1 mb-3 mt-3 border-t border-neutral-800 pt-3">
-                  {pasosEfectivos(p).filter(pasoActivo).map((paso, i) => (
-                    <div key={i} className="text-sm flex gap-2 text-neutral-300">
-                      <span className="text-orange-500 font-semibold w-6">P{i + 1}</span>
-                      <span>↑ {formatVel(paso.velocidad)}</span>
-                      <span>→ {paso.temperatura}°C</span>
-                      {paso.tiempo > 0 && <span>⏱ {paso.tiempo}min</span>}
-                    </div>
-                  ))}
+                  {pasosEfectivos(p).filter(pasoActivo).map((paso, i) => {
+                    const cono = conoDeTemperatura(paso.temperatura)
+                    return (
+                      <div key={i} className="text-sm flex gap-2 text-neutral-300">
+                        <span className="text-orange-500 font-semibold w-6">P{i + 1}</span>
+                        <span>↑ {formatVel(paso.velocidad)}</span>
+                        <span>
+                          → {paso.temperatura}°C
+                          {cono !== null && <span className="text-xs text-neutral-500"> (cono {cono})</span>}
+                        </span>
+                        {paso.tiempo > 0 && <span>⏱ {paso.tiempo}min</span>}
+                      </div>
+                    )
+                  })}
                 </div>
 
                 <button
@@ -455,9 +504,10 @@ export function ProgramasPage() {
             </div>
 
             <div className="mb-5">
-              <div className="flex gap-2 text-xs text-neutral-500 uppercase tracking-wider mb-2 px-1">
+              <div className="flex gap-1.5 text-xs text-neutral-500 uppercase tracking-wider mb-2 px-1">
                 <span className="w-6 shrink-0"></span>
                 <span className="flex-1">Vel °C/min</span>
+                <span className="w-8 shrink-0 text-center text-[10px] tracking-normal">Cono</span>
                 <span className="flex-1">Temp °C</span>
                 <span className="flex-1">Tiempo min</span>
                 <span className="w-5 shrink-0"></span>
@@ -465,7 +515,7 @@ export function ProgramasPage() {
 
               <div className="space-y-2">
                 {nuevoPrograma.pasos.map((paso, i) => (
-                  <div key={i} className="flex items-center gap-2">
+                  <div key={i} className="flex items-center gap-1.5">
                     <span className="text-orange-500 text-xs font-bold w-6 shrink-0">P{i + 1}</span>
                     <input
                       type="text"
@@ -475,15 +525,31 @@ export function ProgramasPage() {
                       onChange={e => editarVelocidadTextoNuevo(i, e.target.value)}
                       className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
-                    <input
-                      type="number"
-                      min="0"
-                      max="1260"
-                      value={paso.temperatura || ''}
-                      placeholder="0"
-                      onChange={e => editarNuevoPaso(i, 'temperatura', e.target.value)}
-                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
-                    />
+                    <span className="w-8 shrink-0 flex justify-center">
+                      <input
+                        type="checkbox"
+                        checked={nuevoPrograma.conoModo[i] ?? false}
+                        onChange={() => alternarConoNuevo(i)}
+                        aria-label={`Paso ${i + 1}: elegir por cono`}
+                        className="w-4 h-4 accent-orange-500"
+                      />
+                    </span>
+                    {nuevoPrograma.conoModo[i] ? (
+                      <SelectorCono
+                        temperatura={paso.temperatura}
+                        onElegir={temp => editarNuevoPaso(i, 'temperatura', String(temp))}
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        min="0"
+                        max="1260"
+                        value={paso.temperatura || ''}
+                        placeholder="0"
+                        onChange={e => editarNuevoPaso(i, 'temperatura', e.target.value)}
+                        className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                      />
+                    )}
                     <input
                       type="number"
                       min="0"
@@ -510,6 +576,9 @@ export function ProgramasPage() {
                 >
                   + Agregar paso
                 </button>
+              )}
+              {nuevoPrograma.conoModo.some(Boolean) && (
+                <p className="mt-2 text-xs text-neutral-500">Conos Orton (60 °C/h). Equivalencia aproximada.</p>
               )}
             </div>
 
@@ -551,9 +620,10 @@ export function ProgramasPage() {
             </div>
 
             <div className="space-y-3 mb-5">
-              <div className="flex gap-2 text-xs text-neutral-500 uppercase tracking-wider mb-2 px-1">
+              <div className="flex gap-1.5 text-xs text-neutral-500 uppercase tracking-wider mb-2 px-1">
                 <span className="w-6 shrink-0"></span>
                 <span className="flex-1">Vel °C/min</span>
+                <span className="w-8 shrink-0 text-center text-[10px] tracking-normal">Cono</span>
                 <span className="flex-1">Temp °C</span>
                 <span className="flex-1">Tiempo min</span>
                 <span className="w-5 shrink-0"></span>
@@ -564,7 +634,7 @@ export function ProgramasPage() {
                 const numVisible = editPasos.pasos.slice(0, origIdx).filter(pasoActivo).length + 1
                 const totalActivos = editPasos.pasos.filter(pasoActivo).length
                 return (
-                  <div key={origIdx} className="flex items-center gap-2">
+                  <div key={origIdx} className="flex items-center gap-1.5">
                     <span className="text-orange-500 text-xs font-bold w-6 shrink-0">P{numVisible}</span>
                     <input
                       type="text"
@@ -574,14 +644,31 @@ export function ProgramasPage() {
                       onFocus={() => setUltimoPasoFocus(origIdx)}
                       className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
                     />
-                    <input
-                      type="number"
-                      value={paso.temperatura || ''}
-                      placeholder="0"
-                      onChange={e => editarPaso(origIdx, 'temperatura', e.target.value)}
-                      onFocus={() => setUltimoPasoFocus(origIdx)}
-                      className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
-                    />
+                    <span className="w-8 shrink-0 flex justify-center">
+                      <input
+                        type="checkbox"
+                        checked={editPasos.conoModo[origIdx] ?? false}
+                        onChange={() => alternarCono(origIdx)}
+                        aria-label={`Paso ${numVisible}: elegir por cono`}
+                        className="w-4 h-4 accent-orange-500"
+                      />
+                    </span>
+                    {editPasos.conoModo[origIdx] ? (
+                      <SelectorCono
+                        temperatura={paso.temperatura}
+                        onElegir={temp => editarPaso(origIdx, 'temperatura', String(temp))}
+                        onFocus={() => setUltimoPasoFocus(origIdx)}
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        value={paso.temperatura || ''}
+                        placeholder="0"
+                        onChange={e => editarPaso(origIdx, 'temperatura', e.target.value)}
+                        onFocus={() => setUltimoPasoFocus(origIdx)}
+                        className="flex-1 min-w-0 px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
+                      />
+                    )}
                     <input
                       type="number"
                       value={paso.tiempo || ''}
@@ -607,6 +694,9 @@ export function ProgramasPage() {
                 >
                   + Agregar paso
                 </button>
+              )}
+              {editPasos.conoModo.some((m, i) => m && pasoActivo(editPasos.pasos[i])) && (
+                <p className="text-xs text-neutral-500">Conos Orton (60 °C/h). Equivalencia aproximada.</p>
               )}
             </div>
 
