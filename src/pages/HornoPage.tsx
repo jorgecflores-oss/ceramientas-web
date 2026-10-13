@@ -475,6 +475,25 @@ export function HornoPage() {
       }
     }
 
+    // Si el firmware publicó curvaMeta, usar los pasos RAM reales directamente
+    // (incluye tempFinal modificado por el usuario antes de arrancar).
+    const aplicarDesdeMetaSiDisponible = (): boolean => {
+      const meta = curvaMetaRef.current
+      if (!meta) return false
+      const ultimoPaso = meta.pasos[meta.pasos.length - 1]
+      const prog: Programa = {
+        nombre: meta.nombre,
+        tipo: meta.idx,
+        tempFinal: ultimoPaso ? ultimoPaso.t : undefined,
+        pasos: meta.pasos.map(p => ({ velocidad: p.v, temperatura: p.t, tiempo: p.d }))
+      }
+      const puntos = calcularCurvaTeorica(prog.pasos, tempAncla, tAncla)
+      setCurvaTeorica(prog, puntos, tAncla, tempAncla)
+      return true
+    }
+
+    let provisionalAplicada = false
+
     if (!esNuevo) {
       const s = useHornoStore.getState()
       const anclaCacheada = (s.puntosTeoricosMap[hornoId]?.length ?? 0) > 1
@@ -482,6 +501,30 @@ export function HornoPage() {
       const epochPrevio = s.curvaEpochMap[hornoId] ?? null
       const procesoMs = ((estado.horas ?? 0) * 60 + (estado.minutos ?? 0)) * 60000
       tAncla = tCapture - procesoMs
+      // Teórica provisional: curvaMeta es retained y ya trae nombre, pasos y tempInicio.
+      // Mostrarla antes del resync (pedidos /curva en serie por MQTT, lento) con el ancla
+      // heurística; al terminar el resync se vuelve a aplicar con el ancla real.
+      for (let i = 0; i < 4 && curvaMetaRef.current === null; i++) {
+        await new Promise(resolve => setTimeout(resolve, 250))
+      }
+      const metaProv = curvaMetaRef.current
+      if (metaProv && typeof metaProv.tempInicio === 'number'
+          && useHornoStore.getState().hornoActivoId === hornoId) {
+        const previo = useHornoStore.getState()
+        const tInicioMapPrevio = previo.tIniciosMap[hornoId] ?? null
+        const histVacio = (previo.historialTemps[hornoId] ?? []).length === 0
+        tempAncla = metaProv.tempInicio
+        provisionalAplicada = aplicarDesdeMetaSiDisponible()
+        // setCurvaTeorica deja el ancla heurística en tIniciosMap y siembra un punto de
+        // origen si no había historial: deshacer ambos para que el resync (re-base y merge
+        // de microcorte) vea lo mismo que sin provisional. El gráfico usa tInicio/puntosTeoricos.
+        useHornoStore.setState(st => ({
+          tIniciosMap: { ...st.tIniciosMap, [hornoId]: tInicioMapPrevio },
+          ...(histVacio
+            ? { historialTemps: { ...st.historialTemps, [hornoId]: [] }, historialTemp: [] }
+            : {}),
+        }))
+      }
       const primerTemp = await resincronizarCurvaReal(hornoId, tAncla)
       const epochNuevo = useHornoStore.getState().curvaEpochMap[hornoId] ?? null
       // tempInicio guardado antes del resync: vale si el epoch no cambió (misma horneada),
@@ -512,8 +555,8 @@ export function HornoPage() {
         // actual, que puede ser post-reboot y no reflejar el inicio de la horneada).
         // Sin curvaMeta, el tempInicio previo de la misma horneada sigue siendo mejor
         // que primerTemp (tras un corte es la temperatura al reanudar, no la de arranque).
-        // curvaMeta es retained y puede llegar después del estado: esperarlo hasta 3 s.
-        for (let i = 0; i < 12 && curvaMetaRef.current === null; i++) {
+        // curvaMeta es retained y puede llegar después del estado: esperarlo hasta 1 s.
+        for (let i = 0; i < 4 && curvaMetaRef.current === null; i++) {
           await new Promise(resolve => setTimeout(resolve, 250))
         }
         const metaAncla = curvaMetaRef.current
@@ -532,24 +575,8 @@ export function HornoPage() {
           return
         }
       }
-      if (yaHayAncla) return
-    }
-
-    // Si el firmware publicó curvaMeta, usar los pasos RAM reales directamente
-    // (incluye tempFinal modificado por el usuario antes de arrancar).
-    const aplicarDesdeMetaSiDisponible = (): boolean => {
-      const meta = curvaMetaRef.current
-      if (!meta) return false
-      const ultimoPaso = meta.pasos[meta.pasos.length - 1]
-      const prog: Programa = {
-        nombre: meta.nombre,
-        tipo: meta.idx,
-        tempFinal: ultimoPaso ? ultimoPaso.t : undefined,
-        pasos: meta.pasos.map(p => ({ velocidad: p.v, temperatura: p.t, tiempo: p.d }))
-      }
-      const puntos = calcularCurvaTeorica(prog.pasos, tempAncla, tAncla)
-      setCurvaTeorica(prog, puntos, tAncla, tempAncla)
-      return true
+      // Con provisional aplicada no cortar acá: seguir para pisarla con el ancla cacheada.
+      if (yaHayAncla && !provisionalAplicada) return
     }
 
     const aplicarCurva = (progs: typeof programas) => {
