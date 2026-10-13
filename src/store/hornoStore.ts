@@ -466,6 +466,8 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       return
     }
     if (!esNuevoEpoch && resp.pts.length === 0) return
+    // Respuesta de poll emitido antes de un reemplazo/merge: su desde ya no es el vigente.
+    if (!esNuevoEpoch && resp.desde !== desdePrevio) return
 
     // Si el proceso reinició por "continuar" tras corte de luz, preservar los datos
     // históricos previos al corte como base para el nuevo epoch.
