@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { espaciarMismoMinuto } from '../utils/espaciarPuntos'
 import { useHornoStore, anclaCurva, UMBRAL_REBASE_MS, UNIX_MINIMO } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
 import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
@@ -59,6 +60,8 @@ export function HornoPage() {
   const snapshot = useHornoStore((s) => s.snapshot)
   const programaActivo = useHornoStore((s) => s.programaActivo)
   const programas = useHornoStore((s) => s.programas)
+  // Solo para dibujar: el firmware sella los puntos en minutos enteros
+  const puntosGrafico = useMemo(() => espaciarMismoMinuto(historialTemp), [historialTemp])
 
   const estadoPrevioRef      = useRef<string | null>(null)
   const corteLuzCooldownRef  = useRef(0)
@@ -899,7 +902,7 @@ export function HornoPage() {
 
       <div className="bg-neutral-900 rounded-2xl p-4 border border-neutral-800 mb-6">
         <CurvaGrafico
-          puntos={historialTemp}
+          puntos={puntosGrafico}
           puntosTeoricos={puntosTeoricos}
           xAhora={xAhora}
           ultimoYMax={ultimoYMax}
