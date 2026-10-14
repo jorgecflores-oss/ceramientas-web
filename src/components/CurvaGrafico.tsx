@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useId } from 'react'
 import type { PuntoCurva } from '../types/horno'
 import type { Snapshot } from '../store/hornoStore'
+import { espaciarMismoMinuto } from '../utils/espaciarPuntos'
 
 const PAD_LEFT    = 38
 const PAD_TOP     = 10
@@ -109,7 +110,12 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
   const hayTeorica = puntosTeoricos && puntosTeoricos.length > 1
   const modoSnapshot = !hayTeorica && !!snapshot && (snapshot.historialTemp.length > 0 || snapshot.puntosTeoricos.length > 1)
 
-  const puntosEf: PuntoCurva[] = modoSnapshot ? snapshot!.historialTemp : puntos
+  // El snapshot guarda los puntos crudos: repartir los de igual minuto, como en la curva en vivo
+  const snapPuntos = useMemo(
+    () => (snapshot ? espaciarMismoMinuto(snapshot.historialTemp) : null),
+    [snapshot]
+  )
+  const puntosEf: PuntoCurva[] = modoSnapshot && snapPuntos ? snapPuntos : puntos
   const teoricoEf: PuntoCurva[] | undefined = modoSnapshot
     ? (snapshot!.puntosTeoricos.length > 1 ? snapshot!.puntosTeoricos : undefined)
     : (hayTeorica ? puntosTeoricos! : undefined)
