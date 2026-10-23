@@ -119,6 +119,17 @@ PWA debe funcionar 3 escenarios:
 `probeAP()` detecta escenario 1 timeout 800ms.
 `cacheIP()` persiste última IP LAN conocida.
 
+## Vinculación
+
+Procedimiento único (por código de 4 dígitos):
+
+1. Conectar el horno a un WiFi con internet desde su red `CERAMIENTAS_XXXX` (página de setup en `http://192.168.4.1`).
+2. Con internet en el teléfono, en "Agregar horno" escribir los 4 últimos caracteres del nombre de red (`XXXX`) y tocar **Vincular**.
+
+La app busca el horno por MQTT (`descubrirHornosMQTT` sobre `ceramientas/+/estado`) filtrando por sufijo del `hornoId`, corta apenas encuentra coincidencia y prueba la password derivada y la invertida.
+
+No hay detección por AP: iOS/WebKit bloquea pedidos a `http://192.168.4.1` desde una página `https` (mixed content / acceso a red local), así que la PWA no puede hablar con el horno en modo hotspot.
+
 ## Historial commits
 
 - Init: Vite + React + TS + Tailwind + MQTT + Zustand + Recharts
@@ -222,6 +233,8 @@ PWA debe funcionar 3 escenarios:
 - Fix (2026-10-13): `aplicarCurvaFirmware` descarta respuestas /curva tardías — con mismo epoch, si `resp.desde !== curvaDesdeMap` vigente (`desdePrevio`) sale sin tocar nada. Caso: poll incremental emitido antes de `reemplazarCurvaCompleta` (resync) que llega después con `desde` viejo; sus puntos se agregaban al final (tiempo menor al anterior), `curvaDesdeMap` retrocedía y los polls siguientes duplicaban páginas. El guard va después del bloque de microcorte (`resp.total < desdePrevio`) y del de `pts` vacío, antes de armar `prev`/`combinado`; `rebasarCurva` y la lógica de epoch nuevo/"continuar" sin cambios. Depende de que el firmware devuelva en `desde` el mismo valor pedido.
 - Fix (2026-10-13): curva real sin "escalera" — el firmware sella `m` en minutos enteros y en rampa rápida caen 4-5 puntos con el mismo `t`: se dibujaban en el mismo x (escalones, puntos hasta 1 min antes de su hora real, real por encima de la teórica). `src/utils/espaciarPuntos.ts`: `espaciarMismoMinuto(pts)` (pura, no muta) reparte las corridas consecutivas con igual `t` — corrida completa: punto k de n en `t + k × (ventana / n)`, ventana = mín(60 s, `t` de la corrida siguiente − `t`); última corrida: espaciado de la corrida anterior (sin anterior 10 s), y si llegara a sumar 60 s usa 60 s / n. HornoPage: `puntosGrafico` (`useMemo`) va a `CurvaGrafico puntos=`. Solo al dibujar la curva en vivo: store, localStorage, snapshot e informes siguen con los datos crudos.
 - Fix (2026-10-13): espaciado también en el snapshot + red de seguridad — CurvaGrafico: `snapPuntos` (`useMemo` sobre `[snapshot]`) pasa `snapshot.historialTemp` por `espaciarMismoMinuto`; `puntosEf = modoSnapshot && snapPuntos ? snapPuntos : puntos` (la curva ya no vuelve a la "escalera" al terminar la horneada). `espaciarMismoMinuto`: con `pts` null/undefined o menos de 2 puntos devuelve `pts` tal cual; cuerpo en try/catch, ante error devuelve `pts` sin cambios. El snapshot guardado sigue crudo.
+- Fix (2026-10-23): `downsamplePorBuckets` (hornoStore) — si en un bucket colapsan n > 1 puntos con el mismo `t` (minuto entero del firmware), el que queda se corre `(n−1)/n × 60 s` dentro del minuto; evita la curva real adelantada ~1 min respecto de la teórica.
+- Feat (2026-10-23): conos Orton con curva 150/60/15 °C/h (`conos.ts`, ProgramasPage) y vinculación única por código de 4 dígitos (LoginPage; `descubrirHornosMQTT` acepta `cortarSi` para terminar al encontrar el sufijo; App.tsx quita `onVinculadoSinInternet`). Ver sección "Vinculación".
 
 ## Notas arquitectura relevantes
 
