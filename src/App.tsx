@@ -28,7 +28,6 @@ function App() {
   if (!horno || page === 'login') {
     return <LoginPage
       onVolver={horno ? () => setPage('horno') : undefined}
-      onVinculadoSinInternet={() => setPage('config')}
     />
   }
 

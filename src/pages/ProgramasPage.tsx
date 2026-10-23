@@ -5,7 +5,10 @@ import { fetchProgramasOnce, postComando, postPrograma, deletePrograma } from '.
 import { publicarComando } from '../services/mqttService'
 import { STORAGE_KEYS } from '../utils/constants'
 import { feedbackBoton } from '../utils/feedback'
-import { CONOS_ORTON, conoDeTemperatura } from '../utils/conos'
+import {
+  CURVAS_CONO, conosDeCurva, conoDeTemperatura, tempDeCono, buscarCono, leerCurvaCono, guardarCurvaCono,
+  type CurvaCono,
+} from '../utils/conos'
 import type { Programa, Paso } from '../types/horno'
 
 const pasoActivo = (p: Paso) => Boolean(p) && (p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0)
@@ -75,24 +78,45 @@ function mensajeErrorGuardado(msg: string, nombre: string): string {
 
 // Reemplaza al input Temp cuando el paso está en modo cono. Solo UI: lo que se guarda son grados.
 // Si la temperatura no coincide exacto con un cono queda en "Cono…" y no se toca hasta elegir.
-function SelectorCono({ temperatura, onElegir, onFocus }: {
-  temperatura: number; onElegir: (temp: number) => void; onFocus?: () => void
+function SelectorCono({ temperatura, curva, onElegir, onFocus }: {
+  temperatura: number; curva: CurvaCono; onElegir: (temp: number) => void; onFocus?: () => void
 }) {
+  const conos = conosDeCurva(curva)
   return (
     <select
-      value={conoDeTemperatura(temperatura) ?? ''}
+      value={conoDeTemperatura(temperatura, curva) ?? ''}
       onChange={e => {
-        const elegido = CONOS_ORTON.find(c => c.cono === e.target.value)
+        const elegido = conos.find(c => c.cono === e.target.value)
         if (elegido) onElegir(elegido.temp)
       }}
       onFocus={onFocus}
       className="flex-1 min-w-0 px-1 py-1.5 bg-neutral-800 border border-neutral-700 rounded text-white text-sm focus:border-orange-500 focus:outline-none"
     >
       <option value="">Cono…</option>
-      {CONOS_ORTON.map(c => (
+      {conos.map(c => (
         <option key={c.cono} value={c.cono}>{`${c.cono} · ${c.temp}°`}</option>
       ))}
     </select>
+  )
+}
+
+// Aclaración bajo los pasos: elegir la curva de calentamiento de los conos Orton.
+function NotaCono({ curva, onCambiar }: { curva: CurvaCono; onCambiar: (c: CurvaCono) => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500">
+      <span>Conos Orton a</span>
+      <select
+        value={curva}
+        onChange={e => onCambiar(Number(e.target.value) as CurvaCono)}
+        aria-label="Curva de calentamiento de los conos Orton"
+        className="px-1 py-0.5 bg-neutral-800 border border-neutral-700 rounded text-white text-xs focus:border-orange-500 focus:outline-none"
+      >
+        {CURVAS_CONO.map(c => (
+          <option key={c} value={c}>{c === 150 ? `${c} °C/h (estándar)` : `${c} °C/h`}</option>
+        ))}
+      </select>
+      <span>Equivalencia aproximada.</span>
+    </div>
   )
 }
 
@@ -115,6 +139,25 @@ export function ProgramasPage() {
   // Modal nuevo programa
   const [nuevoPrograma, setNuevoPrograma] = useState<{ nombre: string; pasos: Paso[]; velTexto: string[]; conoModo: boolean[] } | null>(null)
   const [guardandoNuevo, setGuardandoNuevo] = useState(false)
+
+  // Curva de los conos Orton (°C/h). Defecto 150; se recuerda la última elegida.
+  const [curvaCono, setCurvaCono] = useState<CurvaCono>(leerCurvaCono)
+
+  // Al cambiar de curva, los pasos en modo cono siguen al mismo cono con la temperatura de la curva nueva.
+  function cambiarCurvaCono(nueva: CurvaCono) {
+    if (nueva === curvaCono) return
+    const anterior = curvaCono
+    const remapear = (pasos: Paso[], conoModo: boolean[]) => pasos.map((paso, i) => {
+      if (!conoModo[i]) return paso
+      const cono = conoDeTemperatura(paso.temperatura, anterior)
+      const temp = cono !== null ? tempDeCono(cono, nueva) : null
+      return temp !== null ? { ...paso, temperatura: temp } : paso
+    })
+    setCurvaCono(nueva)
+    guardarCurvaCono(nueva)
+    setEditPasos(e => e ? { ...e, pasos: remapear(e.pasos, e.conoModo) } : e)
+    setNuevoPrograma(n => n ? { ...n, pasos: remapear(n.pasos, n.conoModo) } : n)
+  }
 
   useEffect(() => {
     if (!horno?.hornoId) return
@@ -431,14 +474,14 @@ export function ProgramasPage() {
 
                 <div className="space-y-1 mb-3 mt-3 border-t border-neutral-800 pt-3">
                   {pasosEfectivos(p).filter(pasoActivo).map((paso, i) => {
-                    const cono = conoDeTemperatura(paso.temperatura)
+                    const cono = buscarCono(paso.temperatura, curvaCono)
                     return (
                       <div key={i} className="text-sm flex gap-2 text-neutral-300">
                         <span className="text-orange-500 font-semibold w-6">P{i + 1}</span>
                         <span>↑ {formatVel(paso.velocidad)}</span>
                         <span>
                           → {paso.temperatura}°C
-                          {cono !== null && <span className="text-xs text-neutral-500"> (cono {cono})</span>}
+                          {cono !== null && <span className="text-xs text-neutral-500"> (cono {cono.cono} · {cono.curva}°/h)</span>}
                         </span>
                         {paso.tiempo > 0 && <span>⏱ {paso.tiempo}min</span>}
                       </div>
@@ -537,6 +580,7 @@ export function ProgramasPage() {
                     {nuevoPrograma.conoModo[i] ? (
                       <SelectorCono
                         temperatura={paso.temperatura}
+                        curva={curvaCono}
                         onElegir={temp => editarNuevoPaso(i, 'temperatura', String(temp))}
                       />
                     ) : (
@@ -578,7 +622,7 @@ export function ProgramasPage() {
                 </button>
               )}
               {nuevoPrograma.conoModo.some(Boolean) && (
-                <p className="mt-2 text-xs text-neutral-500">Conos Orton (60 °C/h). Equivalencia aproximada.</p>
+                <NotaCono curva={curvaCono} onCambiar={cambiarCurvaCono} />
               )}
             </div>
 
@@ -656,6 +700,7 @@ export function ProgramasPage() {
                     {editPasos.conoModo[origIdx] ? (
                       <SelectorCono
                         temperatura={paso.temperatura}
+                        curva={curvaCono}
                         onElegir={temp => editarPaso(origIdx, 'temperatura', String(temp))}
                         onFocus={() => setUltimoPasoFocus(origIdx)}
                       />
@@ -696,7 +741,7 @@ export function ProgramasPage() {
                 </button>
               )}
               {editPasos.conoModo.some((m, i) => m && pasoActivo(editPasos.pasos[i])) && (
-                <p className="text-xs text-neutral-500">Conos Orton (60 °C/h). Equivalencia aproximada.</p>
+                <NotaCono curva={curvaCono} onCambiar={cambiarCurvaCono} />
               )}
             </div>
 
