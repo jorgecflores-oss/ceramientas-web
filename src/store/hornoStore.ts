@@ -154,11 +154,21 @@ function downsamplePorBuckets(
   const span = Math.max(now - t0, 1)
   const anchoBucket = span / cantidadBuckets
   const buckets = new Map<number, { t: number; temp: number }>()
+  // Cuántos puntos crudos con el mismo `t` (minuto entero del firmware) cayeron en el bucket
+  const mismoT = new Map<number, number>()
   for (const p of desdeInicio) {
     const idx = Math.floor((p.t - t0) / anchoBucket)
+    const previo = buckets.get(idx)
+    mismoT.set(idx, previo && previo.t === p.t ? (mismoT.get(idx) ?? 1) + 1 : 1)
     buckets.set(idx, p)
   }
-  return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([, p]) => p)
+  // El último punto de un minuto se muestreó al final de ese minuto, no al principio:
+  // sin este corrimiento la curva real queda adelantada ~1 min respecto de la teórica.
+  // Solo se corre al colapsar (n>1): un punto ya corrido tiene n=1 y no se vuelve a mover.
+  return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([idx, p]) => {
+    const n = mismoT.get(idx) ?? 1
+    return n > 1 ? { t: p.t + Math.round((n - 1) / n * 60000), temp: p.temp } : p
+  })
 }
 
 const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
