@@ -67,6 +67,7 @@ interface HornoState {
   tIniciosMap: Record<string, number | null>
   curvaEpochMap: Record<string, number | null>
   curvaDesdeMap: Record<string, number>
+  curvaFactorMap: Record<string, number>
   tempIniciosMap: Record<string, number | null>
   mqttConectado: boolean
   continuarEpoch: Record<string, boolean>
@@ -100,8 +101,8 @@ interface HornoState {
   setMqttConectado: (c: boolean) => void
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
   pushTemp: (temp: number) => void
-  reemplazarCurvaCompleta: (hornoId: string, epoch: number, desde: number, tAncla: number, puntos: { m: number; t: number }[]) => void
-  aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; t0?: number; total: number; desde: number; pts: { m: number; t: number }[] }) => void
+  reemplazarCurvaCompleta: (hornoId: string, epoch: number, desde: number, tAncla: number, puntos: { m: number; t: number }[], f?: number) => void
+  aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; t0?: number; total: number; f?: number; desde: number; pts: { m: number; t: number }[] }) => void
   rebasarCurva: (hornoId: string, resp: { epoch: number; t0?: number }, primerM?: number) => boolean
   flushHistorial: () => void
   resetHistorial: () => void
@@ -233,6 +234,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   tIniciosMap: {},
   curvaEpochMap: {},
   curvaDesdeMap: {},
+  curvaFactorMap: {},
   tempIniciosMap: {},
   mqttConectado: false,
   continuarEpoch: {},
@@ -416,7 +418,8 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     }, 2000)
   },
 
-  reemplazarCurvaCompleta: (hornoId, epoch, desde, tAncla, puntos) => {
+  reemplazarCurvaCompleta: (hornoId, epoch, desde, tAncla, puntos, f) => {
+    const fAplicado = f ?? 1
     const delEquipo = puntos.map(p => ({ t: tAncla + p.m * 60000, temp: p.t }))
     const s = get()
     // Microcorte: el firmware reanuda solo y su buffer arranca de nuevo con el mismo
@@ -437,11 +440,12 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const historialTemps = { ...s.historialTemps, [hornoId]: historial }
     const curvaEpochMap  = { ...s.curvaEpochMap, [hornoId]: epoch }
     const curvaDesdeMap  = { ...s.curvaDesdeMap, [hornoId]: desde }
+    const curvaFactorMap = { ...s.curvaFactorMap, [hornoId]: fAplicado }
     const tIniciosMap    = { ...s.tIniciosMap, [hornoId]: tInicioFinal }
-    set({ historialTemps, historialTemp: historial, curvaEpochMap, curvaDesdeMap, tIniciosMap })
+    set({ historialTemps, historialTemp: historial, curvaEpochMap, curvaDesdeMap, curvaFactorMap, tIniciosMap })
     try {
       localStorage.setItem(STORAGE_KEYS.CURVA(hornoId), JSON.stringify(historial))
-      localStorage.setItem(STORAGE_KEYS.CURVA_META(hornoId), JSON.stringify({ epoch, desde, t0: tInicioFinal }))
+      localStorage.setItem(STORAGE_KEYS.CURVA_META(hornoId), JSON.stringify({ epoch, desde, t0: tInicioFinal, f: fAplicado }))
     } catch (e) {
       console.error('[reemplazarCurvaCompleta persist]', e)
     }
@@ -464,12 +468,21 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     // Microcorte: mismo epoch pero el buffer del firmware volvio a cero (total < desde).
     // Pedir desde 0 en el proximo poll sin tocar el historial.
     const desdePrevio = get().curvaDesdeMap[id] ?? 0
-    if (!esNuevoEpoch && resp.total < desdePrevio) {
-      set(s => ({ curvaDesdeMap: { ...s.curvaDesdeMap, [id]: 0 } }))
+    // Decimación del firmware (curvaFactor "f" distinto con el mismo epoch): el buffer se achicó
+    // pero total puede seguir >= desde y se saltearían puntos. Se trata igual que el microcorte.
+    // resp.desde === desdePrevio descarta respuestas viejas. Firmware sin "f" vale 1.
+    const fResp   = resp.f ?? 1
+    const fPrevio = get().curvaFactorMap[id] ?? 1
+    const cambioFactor = !esNuevoEpoch && resp.desde === desdePrevio && fResp !== fPrevio
+    if (!esNuevoEpoch && (resp.total < desdePrevio || cambioFactor)) {
+      set(s => ({
+        curvaDesdeMap: { ...s.curvaDesdeMap, [id]: 0 },
+        curvaFactorMap: { ...s.curvaFactorMap, [id]: fResp },
+      }))
       // Ancla guardada primero: el re-base (si toca) todavía no corrió y la necesita intacta.
       const t0Meta = guardada ?? ancla ?? undefined
       try {
-        localStorage.setItem(STORAGE_KEYS.CURVA_META(id), JSON.stringify({ epoch: resp.epoch, desde: 0, t0: t0Meta }))
+        localStorage.setItem(STORAGE_KEYS.CURVA_META(id), JSON.stringify({ epoch: resp.epoch, desde: 0, t0: t0Meta, f: fResp }))
       } catch (e) {
         console.error('[aplicarCurvaFirmware meta persist]', e)
       }
@@ -532,14 +545,15 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const curvaDesdeMap = descartarFetch
       ? { ...get().curvaDesdeMap, [id]: 0 }
       : { ...get().curvaDesdeMap, [id]: resp.desde + resp.pts.length }
+    const curvaFactorMap = { ...get().curvaFactorMap, [id]: fResp }
     const tIniciosMap    = { ...get().tIniciosMap, [id]: t0 }
-    set({ historialTemps, historialTemp: nuevo, curvaEpochMap, curvaDesdeMap, tIniciosMap })
+    set({ historialTemps, historialTemp: nuevo, curvaEpochMap, curvaDesdeMap, curvaFactorMap, tIniciosMap })
 
     const desdeGuardar = descartarFetch ? 0 : resp.desde + resp.pts.length
     try {
       localStorage.setItem(
         STORAGE_KEYS.CURVA_META(id),
-        JSON.stringify({ epoch: resp.epoch, desde: desdeGuardar, t0 })
+        JSON.stringify({ epoch: resp.epoch, desde: desdeGuardar, t0, f: fResp })
       )
     } catch (e) {
       console.error('[aplicarCurvaFirmware meta persist]', e)
@@ -602,6 +616,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       localStorage.setItem(STORAGE_KEYS.CURVA(hornoId), JSON.stringify(historial))
       localStorage.setItem(STORAGE_KEYS.CURVA_META(hornoId), JSON.stringify({
         epoch: s.curvaEpochMap[hornoId] ?? resp.epoch, desde: s.curvaDesdeMap[hornoId] ?? 0, t0: ancla,
+        f: s.curvaFactorMap[hornoId] ?? 1,
       }))
     } catch (e) {
       console.error('[rebasarCurva persist]', e)
@@ -636,8 +651,9 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     const historialTemps = { ...get().historialTemps, [id]: [] }
     const curvaEpochMap  = { ...get().curvaEpochMap, [id]: null }
     const curvaDesdeMap  = { ...get().curvaDesdeMap, [id]: 0 }
+    const curvaFactorMap = { ...get().curvaFactorMap, [id]: 1 }
     const continuarEpoch = { ...get().continuarEpoch, [id]: false }
-    set({ historialTemps, historialTemp: [], curvaEpochMap, curvaDesdeMap, continuarEpoch })
+    set({ historialTemps, historialTemp: [], curvaEpochMap, curvaDesdeMap, curvaFactorMap, continuarEpoch })
   },
 
   setProgramas: (p) => {
@@ -749,13 +765,14 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     try {
       const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(id))
       if (metaRaw) {
-        const meta = JSON.parse(metaRaw) as { epoch: number; desde: number; t0?: number }
+        const meta = JSON.parse(metaRaw) as { epoch: number; desde: number; t0?: number; f?: number }
         const curvaEpochMap = { ...get().curvaEpochMap, [id]: meta.epoch }
         const curvaDesdeMap = { ...get().curvaDesdeMap, [id]: meta.desde }
+        const curvaFactorMap = { ...get().curvaFactorMap, [id]: meta.f ?? 1 }
         const tIniciosMap = meta.t0
           ? { ...get().tIniciosMap, [id]: meta.t0 }
           : get().tIniciosMap
-        set({ curvaEpochMap, curvaDesdeMap, tIniciosMap })
+        set({ curvaEpochMap, curvaDesdeMap, curvaFactorMap, tIniciosMap })
       }
       const rawCurva = localStorage.getItem(STORAGE_KEYS.CURVA(id))
       if (rawCurva) {

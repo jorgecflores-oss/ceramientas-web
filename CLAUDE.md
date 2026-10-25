@@ -235,6 +235,7 @@ No hay detección por AP: iOS/WebKit bloquea pedidos a `http://192.168.4.1` desd
 - Fix (2026-10-13): espaciado también en el snapshot + red de seguridad — CurvaGrafico: `snapPuntos` (`useMemo` sobre `[snapshot]`) pasa `snapshot.historialTemp` por `espaciarMismoMinuto`; `puntosEf = modoSnapshot && snapPuntos ? snapPuntos : puntos` (la curva ya no vuelve a la "escalera" al terminar la horneada). `espaciarMismoMinuto`: con `pts` null/undefined o menos de 2 puntos devuelve `pts` tal cual; cuerpo en try/catch, ante error devuelve `pts` sin cambios. El snapshot guardado sigue crudo.
 - Fix (2026-10-23): `downsamplePorBuckets` (hornoStore) — si en un bucket colapsan n > 1 puntos con el mismo `t` (minuto entero del firmware), el que queda se corre `(n−1)/n × 60 s` dentro del minuto; evita la curva real adelantada ~1 min respecto de la teórica.
 - Feat (2026-10-23): conos Orton con curva 150/60/15 °C/h (`conos.ts`, ProgramasPage) y vinculación única por código de 4 dígitos (LoginPage; `descubrirHornosMQTT` acepta `cortarSi` para terminar al encontrar el sufijo; App.tsx quita `onVinculadoSinInternet`). Ver sección "Vinculación".
+- Feat (2026-10-25): /curva suma `f` (curvaFactor); store guarda `curvaFactorMap` y lo persiste en `CURVA_META`; si `f` cambia con mismo epoch (y `resp.desde === desdePrevio`), `desde=0` y relee (igual que microcorte, historial intacto); sin `f` vale 1. `resincronizarCurvaReal` pasa la `f` de la primera página a `reemplazarCurvaCompleta`; `resetHistorial` deja `f=1`.
 
 ## Notas arquitectura relevantes
 

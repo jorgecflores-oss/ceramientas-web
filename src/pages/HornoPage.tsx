@@ -402,9 +402,11 @@ export function HornoPage() {
       let epochBuffer = 0
       let t0Buffer: number | undefined
       let totalBuffer = 0
+      let fPrimera = 1  // curvaFactor de la primera página: si el firmware decima mientras se pagina, el próximo poll lo nota
       let todos: { m: number; t: number }[] = []
       for (let i = 0; i < 15; i++) {
         const curva = await getCurva(hornoId, desde)
+        if (i === 0) fPrimera = curva.f ?? 1
         epochBuffer = curva.epoch
         t0Buffer = curva.t0
         totalBuffer = curva.total
@@ -426,7 +428,7 @@ export function HornoPage() {
         }
         useHornoStore.getState().rebasarCurva(hornoId, respAncla, todos[0].m)
         const anclaReal = anclaCurva(respAncla) ?? tAncla
-        useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, anclaReal, todos)
+        useHornoStore.getState().reemplazarCurvaCompleta(hornoId, epochBuffer, desde, anclaReal, todos, fPrimera)
         return todos[0].t
       }
     } catch (e) {

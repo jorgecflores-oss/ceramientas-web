@@ -66,6 +66,7 @@ export async function getCurva(hornoId: string, desde: number = 0) {
     epoch: number
     t0?: number
     total: number
+    f?: number
     desde: number
     pts: { m: number; t: number }[]
   }
