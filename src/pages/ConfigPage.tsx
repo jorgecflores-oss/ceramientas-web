@@ -69,8 +69,9 @@ function traducirReset(crudo: string): string {
 }
 
 const TIPOS_REC: Record<string, string> = {
-  M: 'Microcorte',
-  R: 'Corte real',
+  // M/R solo describen cuánto cambió la temperatura al reanudar; NO son la causa del reinicio
+  M: 'Reanudación con diferencia de temperatura chica',
+  R: 'Reanudación con diferencia de temperatura grande',
   N: 'Reanudación sin dato de comparación',
   Z: 'Reanudación por el maestro',
 }

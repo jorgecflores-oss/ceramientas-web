@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { EstadoMQTT, Horno, Programa, PuntoCurva } from '../types/horno'
+import type { EstadoMQTT, EstadoOnline, Horno, Programa, PuntoCurva } from '../types/horno'
 import { STORAGE_KEYS } from '../utils/constants'
 import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 
@@ -73,6 +73,7 @@ interface HornoState {
   continuarEpoch: Record<string, boolean>
   ultimoVia: Record<string, 'http' | 'mqtt' | null>
   ultimoRespuestaAt: Record<string, number>
+  onlineMap: Record<string, EstadoOnline>  // LWT por hornoId, no se persiste
 
   // Vista single-horno derivada (backward compat)
   hornoActivo: Horno | null
@@ -100,6 +101,7 @@ interface HornoState {
   setEstado: (e: EstadoMQTT) => void
   setMqttConectado: (c: boolean) => void
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
+  setOnline: (hornoId: string, valor: EstadoOnline) => void
   pushTemp: (temp: number) => void
   reemplazarCurvaCompleta: (hornoId: string, epoch: number, desde: number, tAncla: number, puntos: { m: number; t: number }[], f?: number) => void
   aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; t0?: number; total: number; f?: number; desde: number; pts: { m: number; t: number }[] }) => void
@@ -240,6 +242,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   continuarEpoch: {},
   ultimoVia: {},
   ultimoRespuestaAt: {},
+  onlineMap: {},
 
   // Vista derivada — se calculará al cargar desde storage; inicial vacía
   hornoActivo: null,
@@ -395,6 +398,10 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       ultimoRespuestaAt: { ...state.ultimoRespuestaAt, [hornoId]: Date.now() },
     }
   }),
+
+  setOnline: (hornoId, valor) => set(state =>
+    state.onlineMap[hornoId] === valor ? state : { onlineMap: { ...state.onlineMap, [hornoId]: valor } }
+  ),
 
   pushTemp: (temp) => {
     const id = get().hornoActivoId

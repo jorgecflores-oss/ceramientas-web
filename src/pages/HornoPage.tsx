@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { espaciarMismoMinuto } from '../utils/espaciarPuntos'
 import { useHornoStore, anclaCurva, UMBRAL_REBASE_MS, UNIX_MINIMO } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
-import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
+import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache, iniciarSeguimientoOnline } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica } from '../utils/curvaTeorica'
@@ -91,6 +91,10 @@ export function HornoPage() {
   const [modalNtfy, setModalNtfy]               = useState(false)
   const [exportando, setExportando]             = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; tipo: 'info' | 'warn' | 'error' }[]>([])
+  // LWT del firmware (topic /online). Firmware sin el topic = 'desconocido' = no se muestra nada.
+  const onlineEstado = useHornoStore((s) => hornoId ? s.onlineMap[hornoId] ?? 'desconocido' : 'desconocido')
+  const [sinRespuesta, setSinRespuesta] = useState(false)
+  const sinRespuestaRef = useRef(false)
 
   useEffect(() => {
     if (!horno) return
@@ -302,6 +306,28 @@ export function HornoPage() {
     confirmarTermocuplaShownRef.current = true
     setModalConfirmarTermocupla(true)
   }, [estado?.termocuplaAbierta, estado?.termocuplaConfirmada, modalTermocupla])
+
+  // Registra el seguimiento del LWT (idempotente: un solo handler para toda la app)
+  useEffect(() => { iniciarSeguimientoOnline() }, [])
+
+  // Aviso de cuelgue: 'offline' sostenido > 20 s (anti-parpadeo en reinicios) → banner fijo + un toast.
+  // Al llegar "1" el banner se va con otro toast. No toca el LED Offline ni el estado/curva.
+  useEffect(() => {
+    const nombre = horno?.nombre ?? 'Horno'
+    if (onlineEstado === 'offline') {
+      const t = setTimeout(() => {
+        sinRespuestaRef.current = true
+        setSinRespuesta(true)
+        mostrarToast(`${nombre}: sin respuesta del controlador`, 'error')
+      }, 20_000)
+      return () => clearTimeout(t)
+    }
+    if (sinRespuestaRef.current) {
+      sinRespuestaRef.current = false
+      setSinRespuesta(false)
+      if (onlineEstado === 'online') mostrarToast(`${nombre}: el controlador volvió a responder`, 'info')
+    }
+  }, [onlineEstado, hornoId, horno?.nombre, mostrarToast])
 
   // Notificaciones tipadas del firmware via topic /notif
   useEffect(() => {
@@ -912,6 +938,18 @@ export function HornoPage() {
           snapshot={snapshot}
         />
       </div>
+
+      {/* Sin respuesta del controlador (LWT): el banner se va solo cuando llega "1" */}
+      {sinRespuesta && onlineEstado === 'offline' && (
+        <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-4">
+          <p className="text-red-400 font-semibold">🚨 Sin respuesta del controlador. Posible cuelgue. Con horneada en curso, revisá el horno.</p>
+          {ultimoAt > 0 && (
+            <p className="text-red-300 text-sm mt-1">
+              Último dato hace {Math.floor((Date.now() - ultimoAt) / 60000) < 1 ? 'menos de 1' : Math.floor((Date.now() - ultimoAt) / 60000)} min
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Falla de sensor: sin botón, se resetea en el controlador (UP+DOWN) */}
       {esFallaSensor && (

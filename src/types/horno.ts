@@ -14,6 +14,9 @@ export type EstadoHorno =
   | 'sin datos'
   | 'conexion_directa'
 
+// Estado del topic ceramientas/{hornoId}/online (LWT del firmware): sin el topic = desconocido
+export type EstadoOnline = 'online' | 'offline' | 'desconocido'
+
 export function esProcesoActivo(estado?: string | null): boolean {
   return estado === 'ejecutando' || estado === 'rampa' || estado === 'meseta' || estado === 'conexion_directa'
 }
