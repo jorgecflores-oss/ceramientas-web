@@ -565,6 +565,13 @@ export function HornoPage() {
           await new Promise(resolve => setTimeout(resolve, 250))
         }
         const metaAncla = curvaMetaRef.current
+        // Diagnóstico: mismo epoch (tempMismaHorneada no es null) y el tempInicio del firmware
+        // se aparta del guardado. Solo log, la prioridad del ancla no cambia.
+        if (tempMismaHorneada !== null && typeof metaAncla?.tempInicio === 'number'
+            && Math.abs(metaAncla.tempInicio - tempMismaHorneada) > 15) {
+          console.warn('[ANCLA_DIVERGE]', 'curvaMeta.tempInicio', metaAncla.tempInicio,
+            'guardado', tempMismaHorneada, 'epoch', epochNuevo)
+        }
         tempAncla = metaAncla?.tempInicio ?? tempMismaHorneada ?? primerTemp
         const anclaCorregida = useHornoStore.getState().tIniciosMap[hornoId]
         if (anclaCorregida != null) tAncla = anclaCorregida

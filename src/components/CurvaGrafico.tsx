@@ -3,6 +3,7 @@ import type { PuntoCurva } from '../types/horno'
 import type { Snapshot } from '../store/hornoStore'
 import { espaciarMismoMinuto } from '../utils/espaciarPuntos'
 
+const MAX_HUECO_REAL_MS = 10 * 60 * 1000  // hueco máximo entre puntos reales antes de cortar el trazo
 const PAD_LEFT    = 38
 const PAD_TOP     = 10
 const PAD_BOTTOM  = 22
@@ -348,7 +349,13 @@ export function CurvaGrafico({ puntos, puntosTeoricos, xAhora, ultimoYMax, snaps
     const lyp = (temp: number) => PAD_TOP + (1 - (temp - yMin) / (yMax - yMin)) * ph
     const pts = puntosEfFilt
     if (pts.length < 2) return ''
-    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`).join(' ')
+    // Subtrazo nuevo (M) si entre dos puntos consecutivos hay un hueco > 10 min o el tiempo
+    // retrocede (salto de reloj del equipo tras reanudar): evita unirlos con una recta falsa.
+    // Solo dibujo; los datos del store/snapshot no se tocan. Vale también en modo snapshot.
+    return pts.map((p, i) => {
+      const corte = i === 0 || p.t - pts[i - 1].t > MAX_HUECO_REAL_MS || p.t < pts[i - 1].t
+      return `${corte ? 'M' : 'L'}${lxp(p.t).toFixed(1)},${lyp(p.temp).toFixed(1)}`
+    }).join(' ')
   }, [puntosEfFilt, tMin, tMax, yMin, yMax, svgW])
 
   const teoPath = useMemo(() => {
