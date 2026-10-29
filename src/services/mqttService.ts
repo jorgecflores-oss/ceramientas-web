@@ -17,8 +17,8 @@ let _lastMessageTs = 0  // timestamp del último mensaje recibido (cualquier top
 const subsEstado     = new Map<string, (data: EstadoMQTT) => void>()
 const subsNotif      = new Map<string, (data: NotifMQTT) => void>()
 const subsCurvaMeta  = new Map<string, (payload: string | null) => void>()
-// LWT: ceramientas/+/online ("1" conectado, "0" sin respuesta). Un solo handler por suscriptor, todos los hornos.
-const handlersOnline = new Set<(hornoId: string, online: boolean) => void>()
+// LWT del firmware: ceramientas/{hornoId}/online ("1" online, "0" offline, retenido). Firmware viejo no lo publica.
+const subsOnline     = new Map<string, (valor: 'online' | 'offline') => void>()
 let descubrimientoHandler: ((topic: string) => void) | null = null
 
 export function iniciarMQTT() {
@@ -38,8 +38,8 @@ export function iniciarMQTT() {
     subsEstado.forEach((_, topic) => client?.subscribe(topic))
     subsNotif.forEach((_, topic) => client?.subscribe(topic))
     subsCurvaMeta.forEach((_, topic) => client?.subscribe(topic))
+    subsOnline.forEach((_, topic) => client?.subscribe(topic, { qos: 1 }))  // el retenido trae el último valor
     client?.subscribe('ceramientas/+/res', { qos: 1 })
-    client?.subscribe('ceramientas/+/online', { qos: 1 })  // en cada (re)conexión: el retained trae el último valor
   })
 
   client.on('close', () => {
@@ -54,12 +54,6 @@ export function iniciarMQTT() {
   client.on('message', (topic, payload) => {
     _lastMessageTs = Date.now()
     if (descubrimientoHandler) descubrimientoHandler(topic)
-    const mOnline = topic.match(/^ceramientas\/([^/]+)\/online$/)
-    if (mOnline) {
-      const txt = payload.toString().trim()
-      if (txt === '1' || txt === '0') handlersOnline.forEach(h => h(mOnline[1], txt === '1'))
-      return
-    }
     if (topic.endsWith('/res')) {
       if (payload.length === 0) return
       try {
@@ -83,6 +77,16 @@ export function iniciarMQTT() {
         }
       }
       return
+    }
+    if (topic.endsWith('/online')) {
+      const cbOnline = subsOnline.get(topic)
+      if (cbOnline) {
+        // Payload vacío u otro distinto de "1"/"0": se ignora
+        const txt = payload.toString().trim()
+        if (txt === '1') cbOnline('online')
+        else if (txt === '0') cbOnline('offline')
+        return
+      }
     }
     const cbEstado = subsEstado.get(topic)
     if (cbEstado) {
@@ -127,9 +131,14 @@ export function suscribirNotif(hornoId: string, cb: (data: NotifMQTT) => void) {
   }
 }
 
-export function suscribirOnline(cb: (hornoId: string, online: boolean) => void) {
-  handlersOnline.add(cb)
-  return () => { handlersOnline.delete(cb) }
+export function suscribirOnline(hornoId: string, cb: (valor: 'online' | 'offline') => void) {
+  const topic = `ceramientas/${hornoId}/online`
+  subsOnline.set(topic, cb)
+  if (client && conectado) client.subscribe(topic, { qos: 1 })
+  return () => {
+    subsOnline.delete(topic)
+    client?.unsubscribe(topic)
+  }
 }
 
 export function suscribirCurvaMeta(hornoId: string, cb: (payload: string | null) => void) {

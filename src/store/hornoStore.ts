@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { EstadoMQTT, EstadoOnline, Horno, Programa, PuntoCurva } from '../types/horno'
+import type { EstadoMQTT, Horno, Programa, PuntoCurva } from '../types/horno'
 import { STORAGE_KEYS } from '../utils/constants'
 import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 
@@ -73,7 +73,8 @@ interface HornoState {
   continuarEpoch: Record<string, boolean>
   ultimoVia: Record<string, 'http' | 'mqtt' | null>
   ultimoRespuestaAt: Record<string, number>
-  onlineMap: Record<string, EstadoOnline>  // LWT por hornoId, no se persiste
+  // LWT por hornoId (topic /online), NO se persiste. Sin clave = desconocido (firmware viejo)
+  onlineMQTT: Record<string, { estado: 'online' | 'offline'; desde: number }>
 
   // Vista single-horno derivada (backward compat)
   hornoActivo: Horno | null
@@ -101,7 +102,7 @@ interface HornoState {
   setEstado: (e: EstadoMQTT) => void
   setMqttConectado: (c: boolean) => void
   registrarRespuesta: (hornoId: string, via: 'http' | 'mqtt') => void
-  setOnline: (hornoId: string, valor: EstadoOnline) => void
+  setOnlineMQTT: (hornoId: string, estado: 'online' | 'offline') => void
   pushTemp: (temp: number) => void
   reemplazarCurvaCompleta: (hornoId: string, epoch: number, desde: number, tAncla: number, puntos: { m: number; t: number }[], f?: number) => void
   aplicarCurvaFirmware: (hornoId: string, resp: { epoch: number; t0?: number; total: number; f?: number; desde: number; pts: { m: number; t: number }[] }) => void
@@ -242,7 +243,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
   continuarEpoch: {},
   ultimoVia: {},
   ultimoRespuestaAt: {},
-  onlineMap: {},
+  onlineMQTT: {},
 
   // Vista derivada — se calculará al cargar desde storage; inicial vacía
   hornoActivo: null,
@@ -399,8 +400,11 @@ export const useHornoStore = create<HornoState>((set, get) => ({
     }
   }),
 
-  setOnline: (hornoId, valor) => set(state =>
-    state.onlineMap[hornoId] === valor ? state : { onlineMap: { ...state.onlineMap, [hornoId]: valor } }
+  // Si el estado no cambió no se toca 'desde' (marca el inicio del estado actual)
+  setOnlineMQTT: (hornoId, estado) => set(state =>
+    state.onlineMQTT[hornoId]?.estado === estado
+      ? state
+      : { onlineMQTT: { ...state.onlineMQTT, [hornoId]: { estado, desde: Date.now() } } }
   ),
 
   pushTemp: (temp) => {

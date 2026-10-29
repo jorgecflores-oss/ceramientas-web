@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { espaciarMismoMinuto } from '../utils/espaciarPuntos'
 import { useHornoStore, anclaCurva, UMBRAL_REBASE_MS, UNIX_MINIMO } from '../store/hornoStore'
-import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
-import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache, iniciarSeguimientoOnline } from '../services/hornoService'
+import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, suscribirOnline, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
+import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica } from '../utils/curvaTeorica'
@@ -91,10 +91,12 @@ export function HornoPage() {
   const [modalNtfy, setModalNtfy]               = useState(false)
   const [exportando, setExportando]             = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; tipo: 'info' | 'warn' | 'error' }[]>([])
-  // LWT del firmware (topic /online). Firmware sin el topic = 'desconocido' = no se muestra nada.
-  const onlineEstado = useHornoStore((s) => hornoId ? s.onlineMap[hornoId] ?? 'desconocido' : 'desconocido')
-  const [sinRespuesta, setSinRespuesta] = useState(false)
-  const sinRespuestaRef = useRef(false)
+  // LWT del firmware (topic /online). Sin dato (firmware viejo) = null = no se muestra nada.
+  const onlineMQTT = useHornoStore((s) => hornoId ? s.onlineMQTT[hornoId] ?? null : null)
+  const setOnlineMQTT = useHornoStore((s) => s.setOnlineMQTT)
+  const mqttConectado = useHornoStore((s) => s.mqttConectado)
+  const [offlineSostenido, setOfflineSostenido] = useState(false)
+  const offlineAvisadoRef = useRef(false)
 
   useEffect(() => {
     if (!horno) return
@@ -307,27 +309,38 @@ export function HornoPage() {
     setModalConfirmarTermocupla(true)
   }, [estado?.termocuplaAbierta, estado?.termocuplaConfirmada, modalTermocupla])
 
-  // Registra el seguimiento del LWT (idempotente: un solo handler para toda la app)
-  useEffect(() => { iniciarSeguimientoOnline() }, [])
+  // LWT: suscripción al topic /online del horno activo (se resuscribe sola al reconectar MQTT)
+  useEffect(() => {
+    if (!horno?.hornoId) return
+    const id = horno.hornoId
+    return suscribirOnline(id, (valor) => setOnlineMQTT(id, valor))
+  }, [horno?.hornoId, setOnlineMQTT])
 
-  // Aviso de cuelgue: 'offline' sostenido > 20 s (anti-parpadeo en reinicios) → banner fijo + un toast.
-  // Al llegar "1" el banner se va con otro toast. No toca el LED Offline ni el estado/curva.
+  // Offline continuo > 20 s (tick de 5 s) con la app misma conectada a MQTT: banner + un único toast.
+  // Si la app perdió MQTT el retenido puede ser viejo, así que no se avisa. No toca el LED ni estado/curva.
   useEffect(() => {
     const nombre = horno?.nombre ?? 'Horno'
-    if (onlineEstado === 'offline') {
-      const t = setTimeout(() => {
-        sinRespuestaRef.current = true
-        setSinRespuesta(true)
-        mostrarToast(`${nombre}: sin respuesta del controlador`, 'error')
-      }, 20_000)
-      return () => clearTimeout(t)
+    if (onlineMQTT?.estado !== 'offline') {
+      setOfflineSostenido(false)
+      if (offlineAvisadoRef.current) {
+        offlineAvisadoRef.current = false
+        if (onlineMQTT?.estado === 'online') mostrarToast(`${nombre}: Horno volvió a conectar`, 'info')
+      }
+      return
     }
-    if (sinRespuestaRef.current) {
-      sinRespuestaRef.current = false
-      setSinRespuesta(false)
-      if (onlineEstado === 'online') mostrarToast(`${nombre}: el controlador volvió a responder`, 'info')
+    const desde = onlineMQTT.desde
+    const chequear = () => {
+      const sostenido = Date.now() - desde > 20_000
+      setOfflineSostenido(sostenido)
+      if (sostenido && mqttConectado && !offlineAvisadoRef.current) {
+        offlineAvisadoRef.current = true
+        mostrarToast(`${nombre}: el horno perdió conexión`, 'error')
+      }
     }
-  }, [onlineEstado, hornoId, horno?.nombre, mostrarToast])
+    chequear()
+    const timer = setInterval(chequear, 5000)
+    return () => clearInterval(timer)
+  }, [onlineMQTT?.estado, onlineMQTT?.desde, mqttConectado, horno?.nombre, mostrarToast])
 
   // Notificaciones tipadas del firmware via topic /notif
   useEffect(() => {
@@ -940,14 +953,15 @@ export function HornoPage() {
       </div>
 
       {/* Sin respuesta del controlador (LWT): el banner se va solo cuando llega "1" */}
-      {sinRespuesta && onlineEstado === 'offline' && (
+      {onlineMQTT?.estado === 'offline' && offlineSostenido && mqttConectado && (
         <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-4">
-          <p className="text-red-400 font-semibold">🚨 Sin respuesta del controlador. Posible cuelgue. Con horneada en curso, revisá el horno.</p>
-          {ultimoAt > 0 && (
-            <p className="text-red-300 text-sm mt-1">
-              Último dato hace {Math.floor((Date.now() - ultimoAt) / 60000) < 1 ? 'menos de 1' : Math.floor((Date.now() - ultimoAt) / 60000)} min
-            </p>
-          )}
+          <p className="text-red-400 font-semibold">
+            El horno perdió conexión (WiFi, corte de luz o cuelgue).{' '}
+            {ultimoAt > 0
+              ? `Último dato hace ${Math.floor((Date.now() - ultimoAt) / 60000)} min.`
+              : 'Último dato: sin datos.'}
+            {esProcesoActivo(estado?.estado) && ' Había horneada en curso: verificar el horno.'}
+          </p>
         </div>
       )}
 

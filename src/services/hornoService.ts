@@ -1,6 +1,6 @@
 import { HTTP_TIMEOUT, AP_IP, STORAGE_KEYS, OTA_VERSION_URL } from '../utils/constants'
 import type { InfoHorno, Programa, ConfigHorno } from '../types/horno'
-import { mqttRequest, suscribirOnline } from './mqttService'
+import { mqttRequest } from './mqttService'
 import { useHornoStore } from '../store/hornoStore'
 
 async function fetchTimeout(url: string, opts: RequestInit = {}, timeout = HTTP_TIMEOUT) {
@@ -441,15 +441,4 @@ export async function fetchProgramasOnce(hornoId: string): Promise<Programa[]> {
     }
     throw e
   }
-}
-
-// Seguimiento del LWT (ceramientas/+/online) de todos los hornos, una sola vez en la vida de la app:
-// el handler sigue vivo aunque HornoPage se desmonte, así el store no queda desactualizado.
-let seguimientoOnlineActivo = false
-export function iniciarSeguimientoOnline() {
-  if (seguimientoOnlineActivo) return
-  seguimientoOnlineActivo = true
-  suscribirOnline((hornoId, online) => {
-    useHornoStore.getState().setOnline(hornoId, online ? 'online' : 'offline')
-  })
 }
