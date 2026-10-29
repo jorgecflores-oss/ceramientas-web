@@ -4,6 +4,8 @@ import { SelectorHorno } from '../components/SelectorHorno'
 import { fetchProgramasOnce, postComando, postPrograma, deletePrograma } from '../services/hornoService'
 import { publicarComando } from '../services/mqttService'
 import { STORAGE_KEYS } from '../utils/constants'
+import { calcularEstadoConexion } from '../utils/conexion'
+import { esProcesoActivo } from '../types/horno'
 import { feedbackBoton } from '../utils/feedback'
 import {
   CURVAS_CONO, conosDeCurva, conoDeTemperatura, tempDeCono, buscarCono, leerCurvaCono, guardarCurvaCono,
@@ -186,6 +188,17 @@ export function ProgramasPage() {
 
   async function ejecutar(idx: number) {
     if (!horno) return
+    // "ejecutar" con horneada en curso reinicia el reloj y el temp_inicio del firmware.
+    // Se lee el estado fresco del store (no el del render) y se pide confirmación si hay
+    // proceso activo o si el LED estaría en Offline (no se sabe qué está haciendo el horno).
+    const st = useHornoStore.getState()
+    const hornoId = horno.hornoId
+    const conexion = calcularEstadoConexion(st.ultimoVia[hornoId] ?? null, st.ultimoRespuestaAt[hornoId] ?? 0)
+    if (esProcesoActivo(st.estados[hornoId]?.estado ?? null)) {
+      if (!confirm('Hay una horneada en curso. Ejecutar reinicia el reloj. ¿Continuar?')) return
+    } else if (conexion === 'offline') {
+      if (!confirm('Sin respuesta reciente del horno: no se sabe si hay una horneada en curso. Ejecutar la reinicia y reinicia el reloj. ¿Continuar?')) return
+    }
     feedbackBoton()
     localStorage.setItem(STORAGE_KEYS.ULTIMO_PROG(horno.hornoId), String(idx))
     const ok = publicarComando(horno.hornoId, `ejecutar:${idx}`)

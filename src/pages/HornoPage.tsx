@@ -9,6 +9,7 @@ import { calcularCurvaTeorica } from '../utils/curvaTeorica'
 import { matchPrograma } from '../utils/matchPrograma'
 import { feedbackBoton } from '../utils/feedback'
 import { STORAGE_KEYS } from '../utils/constants'
+import { calcularEstadoConexion } from '../utils/conexion'
 import type { PuntoCurva, Programa } from '../types/horno'
 import { esProcesoActivo, esProgramaActivo } from '../types/horno'
 import { exportarInformeHorneada, exportarCurvaHorno, resolverProgramaDesdeHistorial } from '../utils/exportarInforme'
@@ -780,14 +781,7 @@ export function HornoPage() {
   // Falla de sensor (firmware 3.6.4+): no es un final OK, va con LED rojo y banner propio
   const esFallaSensor = estadoTxt === 'alarma_sensor'
 
-  const VENTANA_MQTT = 60_000
-  const VENTANA_LOCAL = 30_000
-  const mqttHornoOnline = ultimoVia === 'mqtt' && (Date.now() - ultimoAt) < VENTANA_MQTT
-  const lanReciente = ultimoVia === 'http' && (Date.now() - ultimoAt) < VENTANA_LOCAL
-  const estadoConexion: 'online' | 'local' | 'offline' =
-    mqttHornoOnline ? 'online'
-    : lanReciente ? 'local'
-    : 'offline'
+  const estadoConexion = calcularEstadoConexion(ultimoVia, ultimoAt)
 
   return (
     <>

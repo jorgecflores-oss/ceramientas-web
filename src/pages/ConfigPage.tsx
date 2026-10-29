@@ -47,12 +47,71 @@ const MOTIVOS_RESET: Record<string, string> = {
 }
 
 // "*" al final = había horneada activa. Motivo que no está en la tabla se muestra tal cual.
+// Firmware 3.6.7+ con watchdog adjunta migas: "watchdog(etapa/releON+12345ms)" (etapas de
+// nombreEtapaLoop: display, wifi, http, sensor, espnow, control, nvs, rele, ninguna).
+const RE_MIGAS = /^([a-z-]+)\(([a-z]+)\/rele(ON|OFF)\+(\d+)ms\)$/
+
 function traducirReset(crudo: string): string {
   const limpio = crudo.trim()
   const conHorneada = limpio.endsWith('*')
   const motivo = conHorneada ? limpio.slice(0, -1).trim() : limpio
-  const texto = MOTIVOS_RESET[motivo] ?? motivo
+  const migas = RE_MIGAS.exec(motivo)
+  let texto: string
+  if (migas) {
+    const [, base, etapa, rele, ms] = migas
+    const seg = Number(ms) / 1000
+    const segTxt = seg < 10 ? seg.toFixed(1) : String(Math.round(seg))
+    texto = `${MOTIVOS_RESET[base] ?? base} · último paso: ${etapa} · relé ${rele}, ${segTxt} s desde el último cambio`
+  } else {
+    texto = MOTIVOS_RESET[motivo] ?? motivo
+  }
   return conHorneada ? `${texto} (con horneada activa)` : texto
+}
+
+const TIPOS_REC: Record<string, string> = {
+  M: 'Microcorte',
+  R: 'Corte real',
+  N: 'Reanudación sin dato de comparación',
+  Z: 'Reanudación por el maestro',
+}
+const FUENTES_REC: Record<string, string> = {
+  pm: 'reloj guardado',
+  temp: 'temperatura',
+  'temp>tope': 'temperatura con tope',
+  ninguno: 'ninguna',
+}
+
+// "NA" o ilegible = sin dato
+function numRec(v: string | undefined, unidad: string): string {
+  if (v === undefined || v === 'NA' || v === '' || Number.isNaN(Number(v))) return 'sin dato'
+  return `${v}${unidad}`
+}
+
+// Entrada de "rec" (GET /info, firmware 3.6.7+):
+//   "<tipo> ti<n|NA> pm<n|NA> mr<n> p<n> ut<n|NA> t<n> f<fuente>"
+//   "F o<origen> ti<n|NA> pm<n|NA> t<n> p<n>"   (arranque nuevo, 3.6.8+)
+// p es el paso 0-based: la etapa que se muestra es p+1. Formato desconocido: se muestra tal cual.
+function traducirRec(crudo: string): string {
+  const partes = crudo.trim().split(/\s+/)
+  const tipo = partes[0]
+  if (!tipo) return crudo
+  const campos: Record<string, string> = {}
+  for (const tk of partes.slice(1)) {
+    const clave = ['ti', 'pm', 'mr', 'ut', 'p', 't', 'f', 'o'].find(k => tk.startsWith(k))
+    if (clave) campos[clave] = tk.slice(clave.length)
+  }
+  const pNum = campos.p !== undefined && campos.p !== 'NA' ? Number(campos.p) : NaN
+  const etapa = Number.isNaN(pNum) ? 'sin dato' : String(pNum + 1)
+  if (tipo === 'F') {
+    return `Arranque nuevo${campos.o ? ` (origen ${campos.o})` : ''}: inicio ${numRec(campos.ti, ' °C')}, ` +
+      `reloj guardado ${numRec(campos.pm, ' min')}, etapa ${etapa}, ahora ${numRec(campos.t, ' °C')}`
+  }
+  const nombreTipo = TIPOS_REC[tipo]
+  if (!nombreTipo) return crudo
+  const fuente = campos.f ? (FUENTES_REC[campos.f] ?? campos.f) : 'sin dato'
+  return `${nombreTipo}: inicio ${numRec(campos.ti, ' °C')}, reloj guardado ${numRec(campos.pm, ' min')}, ` +
+    `reconstruido ${numRec(campos.mr, ' min')}, etapa ${etapa}, última ${numRec(campos.ut, ' °C')}, ` +
+    `ahora ${numRec(campos.t, ' °C')} (fuente: ${fuente})`
 }
 
 type OtaStep  = null | 'checking' | 'downloading' | 'current' | 'done' | 'error'
@@ -74,7 +133,7 @@ export function ConfigPage({ onAgregarHorno }: Props) {
   const [consumo, setConsumo] = useState('')
   const [limites, setLimites] = useState<LimitesConfig>(LIMITES_LEGACY)
   const [versionFw, setVersionFw] = useState<string | null>(null)
-  const [resetsFw, setResetsFw] = useState<{ ultimo?: string; historial?: string[]; aviso?: string } | null>(null)
+  const [resetsFw, setResetsFw] = useState<{ ultimo?: string; historial?: string[]; aviso?: string; rec?: string[] } | null>(null)
   const [cargandoResets, setCargandoResets] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [confirmarDesvincular, setConfirmarDesvincular] = useState(false)
@@ -122,11 +181,14 @@ export function ConfigPage({ onAgregarHorno }: Props) {
     setCargandoResets(true)
     try {
       const resp = await hornoRequest(horno.hornoId, 'info', 'GET')
-      const d = resp.data as { reset?: string; resets?: string }
+      const d = resp.data as { reset?: string; resets?: string; rec?: string }
       const historial = (d.resets ?? '').split(',').map(r => r.trim()).filter(Boolean).map(traducirReset)
       const ultimo = d.reset?.trim() ? traducirReset(d.reset) : (historial[0] ?? null)
+      // "rec" (firmware 3.6.7+): sin el campo o vacío no se muestra nada
+      const rec = (typeof d.rec === 'string' ? d.rec : '').split(',').map(r => r.trim()).filter(Boolean).map(traducirRec)
+      const conRec = rec.length > 0 ? { rec } : {}
       // Firmware viejo sin esos campos: no hay líneas de reinicio para mostrar
-      setResetsFw(ultimo ? { ultimo, historial } : { aviso: 'no disponible en este firmware' })
+      setResetsFw(ultimo ? { ultimo, historial, ...conRec } : { aviso: 'no disponible en este firmware', ...conRec })
     } catch {
       setResetsFw({ aviso: 'sin respuesta del horno' })
     } finally {
@@ -731,6 +793,14 @@ export function ConfigPage({ onAgregarHorno }: Props) {
               Historial: {resetsFw.historial.join(' · ')}{' '}
               <span className="text-neutral-600">(más nuevo primero)</span>
             </p>
+          )}
+          {resetsFw?.rec && resetsFw.rec.length > 0 && (
+            <div className="text-xs text-neutral-400 mt-2 text-left">
+              <p className="text-neutral-500">Reanudaciones <span className="text-neutral-600">(más nueva primero)</span></p>
+              {resetsFw.rec.map((r, i) => (
+                <p key={i} className="mt-1">{r}</p>
+              ))}
+            </div>
           )}
         </div>
 
