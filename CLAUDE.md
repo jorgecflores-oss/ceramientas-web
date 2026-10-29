@@ -243,6 +243,8 @@ No hay detección por AP: iOS/WebKit bloquea pedidos a `http://192.168.4.1` desd
 
 - Fix (2026-10-29): ProgramasPage.ejecutar ya no envía `ejecutar:<idx>` con horneada activa. Firmware 3.6.7 lo IGNORA si hay horneada en marcha (antes reiniciaba reloj y `temp_inicio`), así que el `confirm()` "Ejecutar reinicia el reloj" mentía: el usuario confirmaba y no pasaba nada. Ahora, con `esProcesoActivo` sobre el estado fresco del store: `alert` "Hay una horneada en curso. Para ejecutar otro programa, detené primero la horneada.", sin publicar y sin tocar `STORAGE_KEYS.ULTIMO_PROG`. Sin proceso activo y con `calcularEstadoConexion` = offline: `confirm` "Sin respuesta reciente del horno. Si hay una horneada en curso, el horno ignora el comando. ¿Enviar igual?". Único emisor de `ejecutar:` en la app (revisado: ConfigPage manda setconfig/restaurar_predef/ota_forzar_url, HornoPage solo continuar/detener/silenciar/cancelar_alarma/confirmar_termocupla). Sin versión. Sin compilar.
 
+- Fix (2026-10-29): ProgramasPage.ejecutar usa `esProgramaActivo` (ejecutando/rampa/meseta) en vez de `esProcesoActivo`: el firmware 3.6.7 solo ignora `ejecutar:` con `directo==0`, así que Conexión Directa ya no bloquea el comando. Sin versión. Sin compilar.
+
 ## Notas arquitectura relevantes
 
 ### OTA (ConfigPage)

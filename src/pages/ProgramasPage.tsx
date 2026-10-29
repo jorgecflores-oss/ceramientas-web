@@ -5,7 +5,7 @@ import { fetchProgramasOnce, postComando, postPrograma, deletePrograma } from '.
 import { publicarComando } from '../services/mqttService'
 import { STORAGE_KEYS } from '../utils/constants'
 import { calcularEstadoConexion } from '../utils/conexion'
-import { esProcesoActivo } from '../types/horno'
+import { esProgramaActivo } from '../types/horno'
 import { feedbackBoton } from '../utils/feedback'
 import {
   CURVAS_CONO, conosDeCurva, conoDeTemperatura, tempDeCono, buscarCono, leerCurvaCono, guardarCurvaCono,
@@ -188,13 +188,13 @@ export function ProgramasPage() {
 
   async function ejecutar(idx: number) {
     if (!horno) return
-    // Firmware 3.6.7+ IGNORA "ejecutar" con horneada en marcha (antes reiniciaba reloj y temp_inicio):
+    // Firmware 3.6.7+ IGNORA "ejecutar" con horneada de programa en marcha (directo==0; Conexión Directa no, por eso esProgramaActivo y no esProcesoActivo) (antes reiniciaba reloj y temp_inicio):
     // hay que detener primero. Se lee el estado fresco del store (no el del render).
     // Con proceso activo no se publica nada ni se toca ULTIMO_PROG. Con LED Offline no se sabe
     // qué está haciendo el horno: se pregunta antes de enviar.
     const st = useHornoStore.getState()
     const hornoId = horno.hornoId
-    if (esProcesoActivo(st.estados[hornoId]?.estado ?? null)) {
+    if (esProgramaActivo(st.estados[hornoId]?.estado ?? null)) {
       alert('Hay una horneada en curso. Para ejecutar otro programa, detené primero la horneada.')
       return
     }
