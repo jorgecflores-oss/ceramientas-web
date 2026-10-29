@@ -188,16 +188,19 @@ export function ProgramasPage() {
 
   async function ejecutar(idx: number) {
     if (!horno) return
-    // "ejecutar" con horneada en curso reinicia el reloj y el temp_inicio del firmware.
-    // Se lee el estado fresco del store (no el del render) y se pide confirmación si hay
-    // proceso activo o si el LED estaría en Offline (no se sabe qué está haciendo el horno).
+    // Firmware 3.6.7+ IGNORA "ejecutar" con horneada en marcha (antes reiniciaba reloj y temp_inicio):
+    // hay que detener primero. Se lee el estado fresco del store (no el del render).
+    // Con proceso activo no se publica nada ni se toca ULTIMO_PROG. Con LED Offline no se sabe
+    // qué está haciendo el horno: se pregunta antes de enviar.
     const st = useHornoStore.getState()
     const hornoId = horno.hornoId
-    const conexion = calcularEstadoConexion(st.ultimoVia[hornoId] ?? null, st.ultimoRespuestaAt[hornoId] ?? 0)
     if (esProcesoActivo(st.estados[hornoId]?.estado ?? null)) {
-      if (!confirm('Hay una horneada en curso. Ejecutar reinicia el reloj. ¿Continuar?')) return
-    } else if (conexion === 'offline') {
-      if (!confirm('Sin respuesta reciente del horno: no se sabe si hay una horneada en curso. Ejecutar la reinicia y reinicia el reloj. ¿Continuar?')) return
+      alert('Hay una horneada en curso. Para ejecutar otro programa, detené primero la horneada.')
+      return
+    }
+    const conexion = calcularEstadoConexion(st.ultimoVia[hornoId] ?? null, st.ultimoRespuestaAt[hornoId] ?? 0)
+    if (conexion === 'offline') {
+      if (!confirm('Sin respuesta reciente del horno. Si hay una horneada en curso, el horno ignora el comando. ¿Enviar igual?')) return
     }
     feedbackBoton()
     localStorage.setItem(STORAGE_KEYS.ULTIMO_PROG(horno.hornoId), String(idx))
