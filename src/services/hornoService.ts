@@ -72,6 +72,90 @@ export async function getCurva(hornoId: string, desde: number = 0) {
   }
 }
 
+export type CurvaFirmware = Awaited<ReturnType<typeof getCurva>>
+
+// Curva completa del equipo (RAM del controlador): pagina /curva?desde=N hasta cubrir `total`.
+// Mismo loop que usaba resincronizarCurvaReal (HornoPage) y que reusa la exportación.
+// `cancelar.v = true` corta antes de la siguiente página (timeout del llamador).
+export async function paginarCurvaCompleta(
+  hornoId: string,
+  cancelar?: { v: boolean }
+): Promise<{ epoch: number; t0?: number; total: number; f: number; desde: number; pts: { m: number; t: number }[] }> {
+  let desde = 0
+  let epoch = 0
+  let t0: number | undefined
+  let total = 0
+  let fPrimera = 1  // curvaFactor de la primera página: si el firmware decima mientras se pagina, el próximo poll lo nota
+  let pts: { m: number; t: number }[] = []
+  for (let i = 0; i < 15; i++) {
+    if (cancelar?.v) break
+    const curva = await getCurva(hornoId, desde)
+    if (i === 0) fPrimera = curva.f ?? 1
+    epoch = curva.epoch
+    t0 = curva.t0
+    total = curva.total
+    pts = pts.concat(curva.pts)
+    desde = curva.desde + curva.pts.length
+    if (curva.pts.length === 0 || desde >= total) break
+  }
+  return { epoch, t0, total, f: fPrimera, desde, pts }
+}
+
+// Registro persistente de eventos del controlador (firmware con GET /eventos). Un evento por
+// seq (q); epoch e = 0 si el equipo no tenía hora; m = minuto del reloj de horneada del equipo.
+export interface EventoFirmware {
+  q: number
+  m: number
+  e: number
+  tp: string
+  t: number | null
+  et: number
+  x?: string
+  dt?: number
+  ap?: number
+}
+export interface RespEventos {
+  hora_valida: boolean
+  hora_fuente: string
+  log_ok: boolean
+  ahora_epoch: number
+  ahora_minuto: number
+  id_horneada: number
+  perdidos?: number
+  total: number
+  desde: number
+  ev: EventoFirmware[]
+}
+
+export async function getEventos(hornoId: string, desde = 0): Promise<RespEventos> {
+  const resp = await hornoRequest(hornoId, `eventos?desde=${desde}`, 'GET', undefined, 8000)
+  const d = resp.data as RespEventos
+  if (!d || !Array.isArray(d.ev)) throw new Error('Respuesta /eventos inválida')
+  return d
+}
+
+// Todas las páginas de /eventos (el firmware corta a 150 eventos / ~9 KB por respuesta).
+export async function getEventosCompletos(hornoId: string, cancelar?: { v: boolean }): Promise<RespEventos> {
+  let desde = 0
+  let base: RespEventos | null = null
+  let ev: EventoFirmware[] = []
+  for (let i = 0; i < 10; i++) {
+    if (cancelar?.v) break
+    const r = await getEventos(hornoId, desde)
+    if (base === null) base = r
+    ev = ev.concat(r.ev)
+    desde += r.ev.length
+    if (r.ev.length === 0 || desde >= r.total) break
+  }
+  if (base === null) throw new Error('Sin respuesta de /eventos')
+  return { ...base, ev }
+}
+
+// Sin NTP el equipo no tiene fecha: se le manda la hora del celular (el firmware la ignora si ya tiene NTP).
+export async function postHora(hornoId: string, epochSeg: number) {
+  return (await hornoRequest(hornoId, 'hora', 'POST', JSON.stringify({ epoch: epochSeg }))).data
+}
+
 export async function consultarInfoMQTT(
   hornoId: string
 ): Promise<{ ok: boolean; nombre?: string; version?: string; reclamado?: boolean }> {

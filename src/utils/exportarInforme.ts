@@ -3,6 +3,8 @@ import type { Snapshot } from '../store/hornoStore'
 import { getHistorial } from '../services/historialService'
 import { getProgramas } from '../services/hornoService'
 import { calcularCurvaTeorica } from './curvaTeorica'
+import { bloqueEventos, lineaMinuto0 } from './preparaExport'
+import type { ExtraExport } from './preparaExport'
 
 // Snapshot con programa recuperado del equipo (no del arranque real)
 // pasoInicial/anclaT/anclaTemp: la curva del equipo arranca a mitad del programa
@@ -12,7 +14,24 @@ export type SnapshotInforme = Snapshot & {
   pasoInicial?: number
   anclaT?: number
   anclaTemp?: number
+  // La curva del equipo arranca a mitad del programa aunque el primer paso con rampa sea el 1
+  ventanaParcial?: boolean
+  // La temperatura de inicio registrada por el equipo no coincide con el primer dato real
+  avisoTempInicio?: string
 }
+
+// Texto comun de los dos exports: datos incompletos y lectura del bloque EVENTOS
+const PROMPT_DATOS_Y_EVENTOS = `Si un AVISO dice datos incompletos, no concluir que una etapa no se alcanzo.
+Decir que falta informacion.
+
+Usar EVENTOS para explicar atrasos. Rampa lenta: relacionar con etapa y
+temperatura. Corte de luz y reanudacion: decir duracion si hay hora y cuanta
+temperatura perdio el horno. Reinicio por watchdog o panic: es cuelgue del
+controlador, decirlo. Reinicio por encendido o brownout: no distingue corte de
+luz real de cuelgue mas corte de termica por el usuario. No concluir causa.
+Arranque fresco o ejecutar ignorado: decir que alguien intento reiniciar la
+horneada. No inventar causas que EVENTOS no muestre. La hora de cada evento es
+la de su columna hora; el minuto de horneada no cuenta el tiempo apagado.`
 
 const pasoActivo = (p: Paso) => p.velocidad !== 0 || p.temperatura !== 0 || p.tiempo !== 0
 
@@ -58,7 +77,8 @@ function calcularResumenEtapas(
   historial: { t: number; temp: number }[],
   tempInicio: number,
   tInicio: number,
-  pasoInicial = 0
+  pasoInicial = 0,
+  datosIncompletos = false
 ) {
   const resumen: {
     paso: number
@@ -112,7 +132,7 @@ function calcularResumenEtapas(
       // Meseta pura o sin velocidad: solo corre el reloj de la meseta
       if (inicioRealMs !== null) inicioRealMs += paso.tiempo * 60000
     } else if (inicioRealMs === null) {
-      estado = 'sin datos'
+      estado = datosIncompletos ? 'datos incompletos' : 'sin datos'
     } else {
       const desdeMs = inicioRealMs
       const ascendente = delta >= 0
@@ -133,8 +153,9 @@ function calcularResumenEtapas(
           estado = 'sin datos'
         }
       } else {
-        // No llego al objetivo: rampa promedio hasta el ultimo punto registrado
-        estado = 'no alcanzada'
+        // No llego al objetivo: rampa promedio hasta el ultimo punto registrado.
+        // Con datos incompletos la horneada pudo seguir: nunca se declara "no alcanzada".
+        estado = datosIncompletos ? 'datos incompletos' : 'no alcanzada'
         const posteriores = historial.filter(p => p.t >= desdeMs)
         const ultimo = posteriores[posteriores.length - 1]
         if (ultimo) {
@@ -195,6 +216,35 @@ function alinearInicioPrograma(
     if (cruce && haySiguiente) return { pasoInicial: k + 1, anclaT: cruce.t, anclaTemp: objetivo }
   }
   return { pasoInicial: k, anclaT: primero.t, anclaTemp: T0 }
+}
+
+// Snapshot de modo programa cuya curva real arranca a mitad del programa (reinicio del equipo, buffer
+// perdido, app cerrada al arrancar). La teorica quedo anclada en la temperatura de arranque registrada
+// (curvaMeta.tempInicio), que puede ser otra: p. ej. se piso con un arranque nuevo a mitad de la
+// horneada. Regla: una etapa se mide desde que arranco de verdad, o sea desde el primer dato real.
+// Se dispara si el primer dato real se aleja > 15 C de esa temperatura o llega > 10 min despues del
+// origen de la teorica. Los pasos previos pasan a "previa a la ventana" (pasoInicial/anclaT/anclaTemp).
+function ajustarVentana(snapshot: SnapshotInforme): SnapshotInforme {
+  const prog = snapshot.programa
+  const h = snapshot.historialTemp
+  if (snapshot.modo !== 'programa' || !prog || h.length === 0 || snapshot.pasoInicial !== undefined) return snapshot
+  const origen = snapshot.puntosTeoricos[0]
+  if (!origen) return snapshot
+  const primero = h[0]
+  const difTemp = Math.abs(primero.temp - origen.temp)
+  const difMin = (primero.t - origen.t) / 60000
+  if (difTemp <= 15 && difMin <= 10) return snapshot
+  const alineado = alinearInicioPrograma(prog.pasos, h) ?? { pasoInicial: 0, anclaT: primero.t, anclaTemp: primero.temp }
+  const aviso = difTemp > 15
+    ? `AVISO: la temperatura de inicio registrada por el equipo (${Math.round(origen.temp)} C) no coincide con el primer dato real (${Math.round(primero.temp)} C); pudo pisarse por un arranque nuevo. Se uso el primer dato real como inicio de la ventana.`
+    : undefined
+  return {
+    ...snapshot,
+    ...alineado,
+    ventanaParcial: true,
+    avisoTempInicio: aviso,
+    puntosTeoricos: calcularCurvaTeorica(prog.pasos.slice(alineado.pasoInicial), alineado.anclaTemp, alineado.anclaT),
+  }
 }
 
 // Motivo por el que fallo el ultimo intento de recuperar el programa ('' = no fallo
@@ -283,7 +333,8 @@ export async function resolverProgramaDesdeHistorial(hornoId: string, snap: Snap
   }
 }
 
-export function exportarInformeHorneada(snapshot: SnapshotInforme) {
+export function exportarInformeHorneada(snapshotEntrada: SnapshotInforme, extra?: ExtraExport) {
+  const snapshot = ajustarVentana(snapshotEntrada)
   const prog = snapshot.programa
   const fecha = fechaISO(snapshot.tInicio)
   const nombreArchivo = `horneada_${fecha}_${slug(prog?.nombre ?? 'programa')}.txt`
@@ -307,6 +358,8 @@ margen para no disparar la alarma); "mantener" = no hace falta cambiarla.
 Si hay AVISOs (sobre el programa o sobre la ventana de datos), mencionarlos
 al inicio del analisis. Los pasos "previa a la ventana" no tienen datos: no
 los analices; en PROGRAMA SUGERIDO llevan la velocidad programada.
+
+${PROMPT_DATOS_Y_EVENTOS}
 
 Genera un archivo PDF, tamano A4, uniendo todo esto en un solo informe.
 IMPORTANTE: el informe tiene que incluir texto de analisis escrito, en
@@ -348,11 +401,15 @@ Contenido del PDF:
       tablaPrograma += 'AVISO: programa tomado del equipo por nombre segun el historial. Si se edito despues de la horneada, los pasos pueden diferir de los que se usaron realmente.\n'
     }
     const pIni = snapshot.pasoInicial ?? 0
-    if (pIni > 0 && snapshot.historialTemp.length > 0) {
+    if (snapshot.avisoTempInicio) tablaPrograma += `${snapshot.avisoTempInicio}\n`
+    if ((pIni > 0 || snapshot.ventanaParcial) && snapshot.historialTemp.length > 0) {
       const h = snapshot.historialTemp
       const minCubiertos = Math.round((h[h.length - 1].t - h[0].t) / 60000)
-      tablaPrograma += `AVISO: la curva del equipo cubre solo ${minCubiertos} min desde ${Math.round(h[0].temp)} C. Pasos 1 a ${pIni} quedaron fuera de la ventana. El analisis cubre desde el paso ${pIni + 1}.\n`
+      tablaPrograma += pIni > 0
+        ? `AVISO: la curva del equipo cubre solo ${minCubiertos} min desde ${Math.round(h[0].temp)} C. Pasos 1 a ${pIni} quedaron fuera de la ventana. El analisis cubre desde el paso ${pIni + 1}.\n`
+        : `AVISO: la curva del equipo cubre solo ${minCubiertos} min y arranca a mitad del programa, en ${Math.round(h[0].temp)} C (dentro del paso 1). El analisis cubre desde ahi.\n`
     }
+    if (extra && extra.avisos.length > 0) tablaPrograma += extra.avisos.join('\n') + '\n'
     tablaPrograma += 'Paso | Velocidad (C/min) | Temp objetivo (C) | Meseta (min)\n'
     prog.pasos
       .filter(pasoActivo)
@@ -370,7 +427,8 @@ Contenido del PDF:
       snapshot.historialTemp,
       snapshot.anclaTemp ?? snapshot.puntosTeoricos[0]?.temp ?? 0,
       snapshot.anclaT ?? snapshot.tInicio,
-      pIni
+      pIni,
+      extra?.datosIncompletos ?? false
     )
     let totalProgramadoMin = 0
     let totalSugeridoMin = 0
@@ -395,7 +453,7 @@ Contenido del PDF:
     const totProg = Math.round(totalProgramadoMin)
     const totSug = Math.round(totalSugeridoMin)
     const dif = totSug - totProg
-    const tituloDuracion = pIni > 0
+    const tituloDuracion = (pIni > 0 || snapshot.ventanaParcial)
       ? `DURACION RESTANTE DESDE EL PASO ${pIni + 1} (desde ${Math.round(snapshot.anclaTemp ?? 0)} C)`
       : 'DURACION TOTAL DEL PROGRAMA'
     tablaResumen += `${tituloDuracion}: programada ${totProg} min | con velocidades sugeridas ${totSug} min | diferencia ${dif >= 0 ? '+' : ''}${dif} min\n`
@@ -407,14 +465,16 @@ Contenido del PDF:
     tablaRangos += `${b.desde}-${b.hasta} | ${b.min.toFixed(1)} | ${b.max.toFixed(1)} | ${b.promedio.toFixed(1)}\n`
   }
 
-  let tablaDatos = 'DATOS (minuto, temp teorica C, temp real C)\n'
+  const bloqueEv = extra ? bloqueEventos(extra) + (extra.eventos !== null ? '\n' : '') : ''
+  const minuto0 = extra ? lineaMinuto0(extra) : ''
+  let tablaDatos = `${minuto0}DATOS (minuto, temp teorica C, temp real C)\n`
   for (const pr of snapshot.historialTemp) {
     const minuto = ((pr.t - snapshot.tInicio) / 60000).toFixed(2)
     const teo = interpolarTeorica(snapshot.puntosTeoricos, pr.t)
     tablaDatos += `${minuto}, ${teo !== null ? teo.toFixed(1) : ''}, ${pr.temp}\n`
   }
 
-  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${tablaPrograma}\n${tablaResumen}\n${tablaRangos}\n${tablaDatos}`
+  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${tablaPrograma}\n${tablaResumen}\n${tablaRangos}\n${bloqueEv}${tablaDatos}`
   descargarTexto(nombreArchivo, contenido)
 }
 
@@ -463,7 +523,7 @@ function calcularRangosRampa(puntos: { t: number; temp: number }[]) {
   return salida.sort((a, b) => a.desde - b.desde)
 }
 
-export function exportarCurvaHorno(snapshot: Snapshot) {
+export function exportarCurvaHorno(snapshot: Snapshot, extra?: ExtraExport) {
   const fecha = fechaISO(snapshot.tInicio)
   const nombreArchivo = `curva_horno_${fecha}.txt`
 
@@ -472,6 +532,9 @@ hasta corte de seguridad o cancelacion manual. No hay curva teorica - el
 objetivo es conocer la capacidad real de este horno.
 Aunque haya pocos puntos (por ejemplo, una prueba corta), grafica igual con
 los datos disponibles - no hace falta mas cantidad para que sea valido.
+
+${PROMPT_DATOS_Y_EVENTOS}
+
 Genera un archivo PDF, tamano A4, con:
 - El grafico de la curva real.
 - La tabla de rangos de temperatura con rampa minima/maxima/promedio.
@@ -486,7 +549,9 @@ Genera un archivo PDF, tamano A4, con:
     tablaRangos += `${b.desde}-${b.hasta} | ${b.min.toFixed(1)} | ${b.max.toFixed(1)} | ${b.promedio.toFixed(1)}\n`
   }
 
-  let tablaDatos = 'DATOS (minuto, temp real C)\n'
+  const bloqueEv = extra ? bloqueEventos(extra) + (extra.eventos !== null ? '\n' : '') : ''
+  const minuto0 = extra ? lineaMinuto0(extra) : ''
+  let tablaDatos = `${minuto0}DATOS (minuto, temp real C)\n`
   for (const p of snapshot.historialTemp) {
     const minuto = ((p.t - snapshot.tInicio) / 60000).toFixed(2)
     tablaDatos += `${minuto}, ${p.temp}\n`
@@ -495,6 +560,7 @@ Genera un archivo PDF, tamano A4, con:
   const aviso = ultimoMotivoRecuperacion
     ? `AVISO: no se pudo recuperar el programa del historial (motivo: ${ultimoMotivoRecuperacion}). El analisis es solo de capacidad del horno.\n\n`
     : ''
-  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${aviso}${tablaRangos}\n${tablaDatos}`
+  const avisosExtra = extra && extra.avisos.length > 0 ? extra.avisos.join('\n') + '\n\n' : ''
+  const contenido = `[PROMPT - pegar este archivo completo en cualquier chat de IA]\n${prompt}\n\n${aviso}${avisosExtra}${tablaRangos}\n${bloqueEv}${tablaDatos}`
   descargarTexto(nombreArchivo, contenido)
 }

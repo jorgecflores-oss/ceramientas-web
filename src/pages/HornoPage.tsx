@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { espaciarMismoMinuto } from '../utils/espaciarPuntos'
 import { useHornoStore, anclaCurva, UMBRAL_REBASE_MS, UNIX_MINIMO } from '../store/hornoStore'
 import { suscribirEstado, suscribirNotif, suscribirCurvaMeta, suscribirOnline, publicarComando, estaConectado, detenerMQTT, iniciarMQTT } from '../services/mqttService'
-import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache } from '../services/hornoService'
+import { postComando, getProgramas, getConfig, getEstado, getCurva, refreshIPCache, paginarCurvaCompleta, getEventos, postHora } from '../services/hornoService'
 import { CurvaGrafico } from '../components/CurvaGrafico'
 import { SelectorHorno } from '../components/SelectorHorno'
 import { calcularCurvaTeorica } from '../utils/curvaTeorica'
@@ -13,6 +13,8 @@ import { calcularEstadoConexion } from '../utils/conexion'
 import type { PuntoCurva, Programa } from '../types/horno'
 import { esProcesoActivo, esProgramaActivo } from '../types/horno'
 import { exportarInformeHorneada, exportarCurvaHorno, resolverProgramaDesdeHistorial } from '../utils/exportarInforme'
+import { prepararExportacion } from '../utils/preparaExport'
+import type { ExtraExport } from '../utils/preparaExport'
 
 function mesetaRestante(puntos: PuntoCurva[], ahora: number): { restanteMin: number; progreso: number } | null {
   for (let i = 1; i < puntos.length; i++) {
@@ -154,6 +156,19 @@ export function HornoPage() {
         )
       })
       .catch(e => console.error('[getConfig]', e))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [horno?.hornoId, pass])
+
+  // Hora del equipo: si /eventos informa que no tiene hora válida (sin internet ni NTP), se le
+  // manda la del celular para que los eventos queden con fecha. Con NTP el firmware la ignora.
+  useEffect(() => {
+    if (!horno?.hornoId || !pass) return
+    const hid = horno.hornoId
+    let cancelado = false
+    getEventos(hid, 0)
+      .then(r => { if (!cancelado && !r.hora_valida) return postHora(hid, Math.floor(Date.now() / 1000)) })
+      .catch(() => { /* firmware sin /eventos o sin respuesta: nada que sincronizar */ })
+    return () => { cancelado = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [horno?.hornoId, pass])
 
@@ -421,16 +436,27 @@ export function HornoPage() {
     }
   }
 
-  // Snapshot 'directa' (p. ej. tras resetear la app): intentar recuperar el
-  // programa desde el historial del equipo; si no hay coincidencia, curva libre.
+  // Antes de armar el archivo se completa la curva con la RAM del controlador y se piden los
+  // eventos (tope 5 s cada uno); sin respuesta se exporta con los datos locales.
+  // Snapshot 'directa' (p. ej. tras resetear la app): intentar recuperar el programa desde el
+  // historial del equipo; si no hay coincidencia, curva libre.
   async function exportar() {
     if (!snapshot || !horno) return
-    if (snapshot.modo === 'programa') { exportarInformeHorneada(snapshot); return }
     setExportando(true)
     try {
-      const r = await resolverProgramaDesdeHistorial(horno.hornoId, snapshot)
-      if (r) exportarInformeHorneada(r)
-      else exportarCurvaHorno(snapshot)
+      let snap = snapshot
+      let extra: ExtraExport | undefined
+      try {
+        const prep = await prepararExportacion(horno.hornoId, snapshot)
+        snap = prep.snap
+        extra = prep.extra
+      } catch (e) {
+        console.error('[EXPORTAR] preparación falló, se exporta con datos locales', e)
+      }
+      if (snap.modo === 'programa') { exportarInformeHorneada(snap, extra); return }
+      const r = await resolverProgramaDesdeHistorial(horno.hornoId, snap)
+      if (r) exportarInformeHorneada(r, extra)
+      else exportarCurvaHorno(snap, extra)
     } finally {
       setExportando(false)
     }
@@ -438,22 +464,8 @@ export function HornoPage() {
 
   async function resincronizarCurvaReal(hornoId: string, tAncla: number): Promise<number | null> {
     try {
-      let desde = 0
-      let epochBuffer = 0
-      let t0Buffer: number | undefined
-      let totalBuffer = 0
-      let fPrimera = 1  // curvaFactor de la primera página: si el firmware decima mientras se pagina, el próximo poll lo nota
-      let todos: { m: number; t: number }[] = []
-      for (let i = 0; i < 15; i++) {
-        const curva = await getCurva(hornoId, desde)
-        if (i === 0) fPrimera = curva.f ?? 1
-        epochBuffer = curva.epoch
-        t0Buffer = curva.t0
-        totalBuffer = curva.total
-        todos = todos.concat(curva.pts)
-        desde = curva.desde + curva.pts.length
-        if (curva.pts.length === 0 || desde >= totalBuffer) break
-      }
+      // Paginado compartido con la exportación (hornoService.paginarCurvaCompleta)
+      const { epoch: epochBuffer, t0: t0Buffer, f: fPrimera, desde, pts: todos } = await paginarCurvaCompleta(hornoId)
       if (todos.length) {
         // Reanudación: el equipo re-basó su reloj → corregir ancla, historial y teórica antes del merge
         const respAncla = { epoch: epochBuffer, t0: t0Buffer }

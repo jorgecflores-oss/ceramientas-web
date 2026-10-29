@@ -52,6 +52,9 @@ export interface Snapshot {
   historialTemp: { t: number; temp: number }[]
   tInicio: number
   xAhoraFinal: number
+  // true = el snapshot se armó con el estado del horno ya en un estado terminal (la app vio el
+  // final de la horneada). Ausente/false = no confirmada: la exportación avisa si faltan datos.
+  terminada?: boolean
 }
 
 interface HornoState {
@@ -122,6 +125,13 @@ interface HornoState {
 
 const MAX_HISTORIAL = 500
 
+// Estados en los que la horneada ya terminó (por fin, alarma o parada): el final quedó visto.
+function esEstadoTerminal(estado: string | null): boolean {
+  return estado === 'finalizado' || estado === 'alarma_exceso' || estado === 'alarma_critica'
+    || estado === 'alarma_sensor' || estado === 'detenido_manualmente' || estado === 'emergencia'
+    || estado === 'error'
+}
+
 // Umbral 1700000000 (~nov 2023): descarta epoch/t0 sin NTP (0) o derivados de millis().
 export const UNIX_MINIMO = 1700000000
 // Diferencia de ancla a partir de la cual se considera que el equipo re-basó su reloj.
@@ -129,7 +139,7 @@ export const UMBRAL_REBASE_MS = 5 * 60000
 
 // Ancla con la que están ubicados los puntos del historial: tIniciosMap, o
 // CURVA_META.t0 de la misma horneada si clearCurvaTeorica ya lo nulleó.
-function anclaGuardada(tInicio: number | null | undefined, hornoId: string, epoch: number): number | null {
+export function anclaGuardada(tInicio: number | null | undefined, hornoId: string, epoch: number): number | null {
   if (tInicio != null) return tInicio
   try {
     const metaRaw = localStorage.getItem(STORAGE_KEYS.CURVA_META(hornoId))
@@ -750,6 +760,7 @@ export const useHornoStore = create<HornoState>((set, get) => ({
       historialTemp: histActual,
       tInicio: tInicioActual,
       xAhoraFinal: (lastDataT - tInicioActual) / 60000,
+      terminada: esEstadoTerminal(s.estados[id]?.estado ?? null),
     }
     try { localStorage.setItem(STORAGE_KEYS.SNAPSHOT(id), JSON.stringify(snap)) } catch {}
     const snapshots = { ...s.snapshots, [id]: snap }
