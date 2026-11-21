@@ -19,7 +19,7 @@ const subsNotif      = new Map<string, (data: NotifMQTT) => void>()
 const subsCurvaMeta  = new Map<string, (payload: string | null) => void>()
 // LWT del firmware: ceramientas/{hornoId}/online ("1" online, "0" offline, retenido). Firmware viejo no lo publica.
 const subsOnline     = new Map<string, (valor: 'online' | 'offline') => void>()
-let descubrimientoHandler: ((topic: string) => void) | null = null
+let descubrimientoHandler: ((topic: string, payloadTxt: string) => void) | null = null
 
 export function iniciarMQTT() {
   if (client) return
@@ -40,6 +40,11 @@ export function iniciarMQTT() {
     subsCurvaMeta.forEach((_, topic) => client?.subscribe(topic))
     subsOnline.forEach((_, topic) => client?.subscribe(topic, { qos: 1 }))  // el retenido trae el último valor
     client?.subscribe('ceramientas/+/res', { qos: 1 })
+    // Descubrimiento en curso (vincular): si el WebSocket reconectó a mitad, volver a suscribir los comodines
+    if (descubrimientoHandler) {
+      client?.subscribe('ceramientas/+/online', { qos: 1 })
+      client?.subscribe('ceramientas/+/estado', { qos: 0 })
+    }
   })
 
   client.on('close', () => {
@@ -53,7 +58,7 @@ export function iniciarMQTT() {
 
   client.on('message', (topic, payload) => {
     _lastMessageTs = Date.now()
-    if (descubrimientoHandler) descubrimientoHandler(topic)
+    if (descubrimientoHandler) descubrimientoHandler(topic, payload.toString())
     if (topic.endsWith('/res')) {
       if (payload.length === 0) return
       try {
@@ -168,11 +173,27 @@ export function detenerMQTT() {
   conectado = false
 }
 
-export function descubrirHornosMQTT(
+// Descubre hornos publicando en el broker. Dos fuentes:
+//  - /online (retenido, firmware 3.6.7+): llega al instante al suscribirse. "0" = horno caído, se ignora.
+//  - /estado (sin retain): en reposo el firmware publica cada 30 s. Respaldo para firmware viejo.
+// espera: al aparecer el primer horno con coincide() true, espera graciaMs más (para detectar choques
+// de código de 4 caracteres) y termina.
+export async function descubrirHornosMQTT(
   timeoutMs: number = 15000,
   onFound?: (hornoId: string) => void,
-  cortarSi?: (hornoId: string) => boolean   // true → termina ya, sin esperar el timeout
+  cortarSi?: (hornoId: string) => boolean,   // true → termina ya, sin esperar el timeout
+  espera?: { coincide: (hornoId: string) => boolean; graciaMs: number }
 ): Promise<string[]> {
+  // Mismo criterio que mqttRequest: WebSocket congelado por Android (conectado pero sin mensajes >60s) → reconectar.
+  if (estaConectado() && _lastMessageTs > 0 && Date.now() - _lastMessageTs > 60_000) {
+    detenerMQTT()
+    iniciarMQTT()
+  }
+  // Al volver de la red CERAMIENTAS_XXXX al WiFi de casa el WebSocket puede estar reconectando: esperar hasta 8 s.
+  const inicioEspera = Date.now()
+  while (!estaConectado() && Date.now() - inicioEspera < 8000) {
+    await new Promise(r => setTimeout(r, 200))
+  }
   return new Promise((resolve) => {
     if (!estaConectado()) {
       resolve([])
@@ -180,27 +201,36 @@ export function descubrirHornosMQTT(
     }
     const encontrados = new Set<string>()
     let terminado = false
+    let graciaTimer: ReturnType<typeof setTimeout> | null = null
     const terminar = () => {
       if (terminado) return
       terminado = true
       clearTimeout(timer)
+      if (graciaTimer) clearTimeout(graciaTimer)
       descubrimientoHandler = null
       client?.unsubscribe('ceramientas/+/estado')
+      client?.unsubscribe('ceramientas/+/online')
       console.log('[DESC] terminado, encontrados:', Array.from(encontrados))
       resolve(Array.from(encontrados))
     }
     const timer = setTimeout(terminar, timeoutMs)
-    descubrimientoHandler = (topic: string) => {
+    descubrimientoHandler = (topic: string, payloadTxt: string) => {
       console.log('[DESC] topic recibido:', topic)
-      const match = topic.match(/^ceramientas\/([^/]+)\/estado$/)
-      if (match && !encontrados.has(match[1])) {
-        encontrados.add(match[1])
-        onFound?.(match[1])
-        if (cortarSi?.(match[1])) terminar()
+      let id: string | null = null
+      const mEstado = topic.match(/^ceramientas\/([^/]+)\/estado$/)
+      const mOnline = topic.match(/^ceramientas\/([^/]+)\/online$/)
+      if (mEstado) id = mEstado[1]
+      else if (mOnline && payloadTxt.trim() === '1') id = mOnline[1]
+      if (id && !encontrados.has(id)) {
+        encontrados.add(id)
+        onFound?.(id)
+        if (cortarSi?.(id)) { terminar(); return }
+        if (espera && !graciaTimer && espera.coincide(id)) graciaTimer = setTimeout(terminar, espera.graciaMs)
       }
     }
+    client!.subscribe('ceramientas/+/online', { qos: 1 })
     client!.subscribe('ceramientas/+/estado', { qos: 0 })
-    console.log('[DESC] iniciando suscripcion ceramientas/+/estado')
+    console.log('[DESC] iniciando suscripcion ceramientas/+/online y ceramientas/+/estado')
   })
 }
 

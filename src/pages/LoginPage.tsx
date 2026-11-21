@@ -34,11 +34,14 @@ export function LoginPage({ onVolver }: Props) {
     setError('')
     let hallado: string | null = null
     try {
-      // Con 6 caracteres el horno es único: cortar apenas aparece. Con 4 esperar y detectar choques.
+      // Con 6 caracteres el horno es único: cortar apenas aparece. Con 4 esperar 3 s tras el primero y detectar choques.
+      // Tope 35 s: firmware viejo (sin /online retenido) publica estado en reposo cada 30 s.
+      const coincide = (id: string) => id.toLowerCase().endsWith(sufijo)
       const todos = await descubrirHornosMQTT(
-        sufijo.length >= 6 ? 20000 : 10000,
+        35000,
         undefined,
-        (id) => sufijo.length >= 6 && id.toLowerCase().endsWith(sufijo),
+        (id) => sufijo.length >= 6 && coincide(id),
+        { coincide, graciaMs: 3000 },
       )
       const coinciden = todos.filter(id => id.toLowerCase().endsWith(sufijo))
       if (coinciden.length > 1) {
@@ -215,7 +218,7 @@ export function LoginPage({ onVolver }: Props) {
             </div>
 
             {buscando && (
-              <p className="text-xs text-neutral-500">Buscando el horno por internet. Puede tardar hasta 20 segundos.</p>
+              <p className="text-xs text-neutral-500">Buscando el horno por internet. Puede tardar hasta 35 segundos.</p>
             )}
 
             {error && <p className="text-red-400 text-sm">{error}</p>}
